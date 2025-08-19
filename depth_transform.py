@@ -114,6 +114,7 @@ def filter_points(points, colors, filters=None):
         items = filters
 
     for item in items:
+        print(f"Processing filter item: {item}")
         if isinstance(item, list) and len(item) == 3:
             axis, min_val, max_val = item
         else:  # dict 形式
@@ -140,6 +141,7 @@ def depth_transform(pts, color, cfg: Config):
     """
     点云变换
     """
+    print(f"Transforming points with config: {cfg}")
     return filter_points(
         ratate_points(pts, cfg.transform_cfg['rotate_points']), 
         color, 
@@ -171,7 +173,7 @@ def depth_to_pointcloud(depth,
         # 假设 rgb 是 HxWx3
         color = rgb.reshape(-1,3)[mask] / 255.0  # 转为 [0,1] 浮点
     if height is not None:
-        cfg.transform_cfg['filter_points'].append(['y', [-height, None]])
+        cfg.transform_cfg['filter_points'].append(['y', [-height+0.2, None]])
     return depth_transform(pts, color, cfg)
 
 def depth_layer_proj(depth, 
@@ -434,7 +436,11 @@ if __name__ == "__main__":
     frames = data['frame']        # (50, 300, 300, 3)
     depths = data['depth']        # (50, 300, 300)
     attn   = data['obj_attention']# (50, 300, 300)
-    heights = data['height']     
+    if 'height' in data.keys():
+        print("Height data found, using it for filtering.")
+        heights = data['height']   
+    else:
+        heights = None  
 
     if args.mode == 'viewer':
         app = PointCloudFilterApp(depths, frames,  heights, cfg=cfg)

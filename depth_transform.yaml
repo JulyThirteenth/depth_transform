@@ -1,6 +1,6 @@
 sensor_cfg:
   fov_deg: [90.0,90.0]
-  dist_scale: 10.0
+  dist_scale: 20.0
 
 transform_cfg: # Poincloud以X右为正， Y上为正，Z前为正
   rotate_points: [] # ['z', -30]
