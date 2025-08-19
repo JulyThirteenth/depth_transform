@@ -96,7 +96,7 @@ def filter_points(points, colors, filters=None):
     参数:
         points: (N, 3) ndarray 点云
         colors: (N, 3) ndarray 颜色
-        filters: dict 或 list/tuple, 指定每个轴的范围
+        filters: [dict 或 list/tuple, 指定每个轴的范围]
             - 如果是 dict: {axis: (min, max)}
             - 如果是 list/tuple: [(axis, min, max), ...]
 
@@ -129,7 +129,6 @@ def filter_points(points, colors, filters=None):
                 axis = 2
             else:
                 raise ValueError("axis 必须是 'x', 'y', 'z' 或 0, 1, 2")
-
         if min_val is not None:
             mask &= points[:, axis] >= min_val
         if max_val is not None:
@@ -148,6 +147,7 @@ def depth_transform(pts, color, cfg: Config):
 
 def depth_to_pointcloud(depth, 
                         rgb=None, 
+                        height=None,
                         cfg: Config=Config()):
     """
     转换到相机坐标系下：X右为正， Y上为正，Z前为正
@@ -170,9 +170,14 @@ def depth_to_pointcloud(depth,
     if rgb is not None:
         # 假设 rgb 是 HxWx3
         color = rgb.reshape(-1,3)[mask] / 255.0  # 转为 [0,1] 浮点
+    if height is not None:
+        cfg.transform_cfg['filter_points'].append(['y', [-height, None]])
     return depth_transform(pts, color, cfg)
 
-def depth_layer_proj(depth, rgb = None, cfg: Config = Config()):
+def depth_layer_proj(depth, 
+                     rgb = None, 
+                     height = None,
+                     cfg: Config = Config()):
     """
     传入点云：Nx3, 投影到二维平面 (X-Y)，考虑遮挡效应，生成占用栅格地图。
     
@@ -187,7 +192,7 @@ def depth_layer_proj(depth, rgb = None, cfg: Config = Config()):
         color: np.ndarray, 点云对应的颜色
         occ_map: np.ndarray, 0-1 占用地图 (size x size)
     """
-    layer, color = depth_to_pointcloud(depth, rgb=rgb, cfg=cfg)
+    layer, color = depth_to_pointcloud(depth, rgb=rgb, height=height, cfg=cfg)
     size = cfg.projection_cfg['map_size']
     resolution = cfg.projection_cfg['map_resolution']
     # 初始化占用地图和深度图
@@ -227,11 +232,14 @@ def rotation_matrix_to_euler_angles(R):
     return np.degrees([x, y, z])
 
 class PointCloudFilterApp:
-    def __init__(self, depths, colors=None, cfg: Config=Config()):
+    def __init__(self, depths, colors=None, heights=None, cfg: Config=Config()):
         self.depths = depths
         self.colors = colors
+        self.heights = heights
         if self.colors is not None:
             assert len(depths) == len(colors)
+        if self.heights is not None:
+            assert len(depths) == len(heights)
         self.num_frames = len(depths)
         self.cfg = cfg
         self.current_frame = 0
@@ -239,6 +247,7 @@ class PointCloudFilterApp:
         self.points, self.color = depth_to_pointcloud(
             depth=depths[0],
             rgb=colors[0] if colors is not None else None,
+            height=heights[0] if heights is not None else None,
             cfg=cfg
         )
         self.points_orig = self.points.copy()
@@ -337,6 +346,7 @@ class PointCloudFilterApp:
         self.points, self.color = depth_to_pointcloud(
             self.depths[self.current_frame],
             rgb=rgb, 
+            height=self.heights[self.current_frame] if self.heights is not None else None,
             cfg=self.cfg
         )
         self.points_orig = self.points.copy()
@@ -362,7 +372,7 @@ class PointCloudFilterApp:
         # 重新添加小坐标轴
         self.scene_widget.scene.add_geometry("axis", self.axis_frame, material)
 
-def plot_data_frame(rgb, depth, obj_attention, cfg: Config=Config()):
+def plot_data_frame(rgb, depth, obj_attention, height=None, cfg: Config=Config()):
     num_frames = rgb.shape[0]
     idx = [0]  # 用列表封装，方便在内部修改
 
@@ -378,7 +388,10 @@ def plot_data_frame(rgb, depth, obj_attention, cfg: Config=Config()):
     img_attn = axes[1, 0].imshow(obj_attention[idx[0]], cmap='hot')
     axes[1, 0].set_title("Object Attention")
 
-    _, _, occ_map = depth_layer_proj(depth[idx[0]], rgb[idx[0]], cfg=cfg)
+    _, _, occ_map = depth_layer_proj(depth[idx[0]], 
+                                     rgb[idx[0]], 
+                                     height=height[idx[0]] if height is not None else None,
+                                     cfg=cfg)
     img_occ = axes[1, 1].imshow(occ_map, cmap="gray", origin="lower")
     axes[1, 1].set_title("Occ Map")
  
@@ -421,10 +434,11 @@ if __name__ == "__main__":
     frames = data['frame']        # (50, 300, 300, 3)
     depths = data['depth']        # (50, 300, 300)
     attn   = data['obj_attention']# (50, 300, 300)
+    heights = data['height']     
 
     if args.mode == 'viewer':
-        app = PointCloudFilterApp(depths, frames, cfg=cfg)
+        app = PointCloudFilterApp(depths, frames,  heights, cfg=cfg)
     elif args.mode == 'plot':
-        plot_data_frame(frames, depths, attn, cfg=cfg)
+        plot_data_frame(frames, depths, attn, heights, cfg=cfg)
 
 
