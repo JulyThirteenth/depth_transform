@@ -226,8 +226,8 @@ def depth_layer_proj(depth,
 
     # 将点云转换为栅格坐标
     half = size // 2
-    grid_x = np.floor(layer[:, 0] / resolution).astype(int) + half  # X对应栅格X
-    grid_y = np.floor(layer[:, 2] / resolution).astype(int) + half  # Z对应栅格Y
+    grid_x = -np.floor(layer[:, 2] / resolution).astype(int) + half  # X对应栅格X
+    grid_y = np.floor(layer[:, 0] / resolution).astype(int) + half  # Z对应栅格Y
 
     # 过滤掉超出范围的点
     valid_mask = (grid_x >= 0) & (grid_x < size) & (grid_y >= 0) & (grid_y < size)
@@ -402,7 +402,7 @@ def plot_data_frame(rgb, depth, obj_attention, height=None, cfg: Config=Config()
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 4))
     fig.subplots_adjust(wspace=0.3)
-    fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}", fontsize=16)
+    fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
 
     # 初始化三张图
     img_rgb = axes[0, 0].imshow(rgb[idx[0]])
