@@ -27,8 +27,18 @@ Open the shell or cmd and use below two commands to have a visual of input and o
   * You can use <-, -> to change frame\
 ![plot](./assets/plot.png)\
 * ``` python .\depth_transform.py --cfg ./depth_transform.yaml --data /path/to/data --mode viewer```\
-  * You can change frame through silder of Frame on the left side bar
+  * You can change frame through silder of Frame on the left side bar\
 ![viewer](./assets/viewer.png)\
+
+If there is the error like this:\
+'''libGL error: MESA-LOADER: failed to open swrast: /usr/lib/dri/swrast_dri.so: 无法打开共享目标文件: 没有那个文件或目录 (search paths /usr/lib/x86_64-linux-gnu/dri:\$${ORIGIN}/dri:/usr/lib/dri, suffix _dri)\
+libGL error: failed to load driver: swrast\
+libGL error: MESA-LOADER: failed to open swrast: /usr/lib/dri/swrast_dri.so: 无法打开共享目标文件: 没有那个文件或目录 (search paths /usr/lib/x86_64-linux-gnu/dri:\$${ORIGIN}/dri:/usr/lib/dri, suffix _dri)\
+libGL error: failed to load driver: swrast\
+段错误 (核心已转储)'''
+
+Excute `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libstdc++.so.6` before tun the script, or you can add `/usr/lib/x86_64-linux-gnu/` to your LD_LIBRARY_PATH in .bashrc 
+
 A statement of parameters in depth_tranform.yaml
 * fov_deg: fov of RGBD, unit degree
 * dist_scale:max distance of RGBD, unit meter

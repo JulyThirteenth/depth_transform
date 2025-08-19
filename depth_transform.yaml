@@ -1,16 +1,11 @@
 sensor_cfg:
   fov_deg: [90.0,90.0]
-  dist_scale: 10.0
+  dist_scale: 1
 
 transform_cfg: # Poincloud以X右为正， Y上为正，Z前为正
-<<<<<<< HEAD
-  rotate_points: [['x', 30]] # 
-  filter_points: [['y', -0.25, 0.25]] # 
-=======
   rotate_points: [['x', -30]] # 
-  filter_points: [] # ['y', -0.25, 0.25]
->>>>>>> da7bb95 (dev: add height filter)
+  filter_points: [['y', -0.25, 0.25]] # 
 
 projection_cfg:
-  map_resolution: 0.5
-  map_size: 200
+  map_resolution: 0.1
+  map_size: 80

@@ -98,6 +98,7 @@ def filter_points(points, colors, filters=None):
     """
     多轴联合范围过滤
     """
+    # print(f"filters:{filters}")
     if filters is None or len(filters) == 0:
         return points, colors
         
@@ -108,7 +109,6 @@ def filter_points(points, colors, filters=None):
             axis, min_val, max_val = item
         else:
             raise ValueError("过滤项必须是 [axis, min_val, max_val] 格式")
-
         if isinstance(axis, str):
             axis = axis.lower()
             axis_idx = {'x': 0, 'y': 1, 'z': 2}[axis]
@@ -182,6 +182,13 @@ def depth_to_pointcloud(depth,
     if rgb is not None:
         color = rgb.reshape(-1, 3)[mask] / 255.0
     
+    # 应用变换
+    if 'rotate_points' in cfg.transform_cfg:
+        pts = rotate_points(pts, cfg.transform_cfg['rotate_points'])
+    
+    if 'filter_points' in cfg.transform_cfg:
+        pts, color = filter_points(pts, color, cfg.transform_cfg['filter_points'])
+
     # 根据相机高度添加地面过滤
     if height is not None:
         if coordinate_system == 'opengl':
@@ -191,16 +198,7 @@ def depth_to_pointcloud(depth,
             # Y向下的坐标系，地面在height附近
             ground_filter = ['y', None, height]
         
-        if 'filter_points' not in cfg.transform_cfg:
-            cfg.transform_cfg['filter_points'] = []
-        cfg.transform_cfg['filter_points'].append(ground_filter)
-    
-    # 应用变换
-    if 'rotate_points' in cfg.transform_cfg:
-        pts = rotate_points(pts, cfg.transform_cfg['rotate_points'])
-    
-    if 'filter_points' in cfg.transform_cfg:
-        pts, color = filter_points(pts, color, cfg.transform_cfg['filter_points'])
+        pts, color = filter_points(pts, color, [ground_filter])
     
     return pts, color
 
@@ -437,7 +435,7 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
         _, _, occ_map = depth_layer_proj(depth[idx[0]], rgb[idx[0]], cfg=cfg)
         img_occ.set_data(occ_map)
 
-        fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}", fontsize=16)
+        fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
         fig.canvas.draw_idle()
 
     fig.canvas.mpl_connect('key_press_event', on_key)
@@ -460,11 +458,12 @@ if __name__ == "__main__":
     # attn   = data['obj_attention']# (50, 300, 300)
     if 'height' in data.keys():
         print("Height data found, using it for filtering.")
-        heights = data['height']   
+        heights = data['height'] 
+        plt.plot(heights)
+        plt.title("Drone Heights Visualization")
+        plt.show()  
     else:
         heights = None  
-
-    heights = None
 
     if args.mode == 'viewer':
         app = PointCloudFilterApp(depths, frames,  heights, cfg=cfg)
