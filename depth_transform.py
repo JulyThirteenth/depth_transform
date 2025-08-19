@@ -396,28 +396,28 @@ class PointCloudFilterApp:
         # 重新添加小坐标轴
         self.scene_widget.scene.add_geometry("axis", self.axis_frame, material)
 
-def plot_data_frame(rgb, depth, obj_attention, height=None, cfg: Config=Config()):
+def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     num_frames = rgb.shape[0]
     idx = [0]  # 用列表封装，方便在内部修改
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
     fig.subplots_adjust(wspace=0.3)
     fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
 
     # 初始化三张图
-    img_rgb = axes[0, 0].imshow(rgb[idx[0]])
-    axes[0, 0].set_title("RGB")
-    img_depth = axes[0, 1].imshow(depth[idx[0]], cmap='viridis')
-    axes[0, 1].set_title("Depth")
-    img_attn = axes[1, 0].imshow(obj_attention[idx[0]], cmap='hot')
-    axes[1, 0].set_title("Object Attention")
+    img_rgb = axes[0].imshow(rgb[idx[0]])
+    axes[0].set_title("RGB")
+    img_depth = axes[1].imshow(depth[idx[0]], cmap='viridis')
+    axes[1].set_title("Depth")
+    # img_attn = axes[1, 0].imshow(obj_attention[idx[0]], cmap='hot')
+    # axes[1, 0].set_title("Object Attention")
 
     _, _, occ_map = depth_layer_proj(depth[idx[0]], 
                                      rgb[idx[0]], 
                                      height=height[idx[0]] if height is not None else None,
                                      cfg=cfg)
-    img_occ = axes[1, 1].imshow(occ_map, cmap="gray", origin="lower")
-    axes[1, 1].set_title("Occ Map")
+    img_occ = axes[2].imshow(occ_map, cmap="gray", origin="lower")
+    axes[2].set_title("Occ Map")
  
     for ax in axes.flatten():
         ax.axis('off')
@@ -432,7 +432,7 @@ def plot_data_frame(rgb, depth, obj_attention, height=None, cfg: Config=Config()
         # 更新图像
         img_rgb.set_data(rgb[idx[0]])
         img_depth.set_data(depth[idx[0]])
-        img_attn.set_data(obj_attention[idx[0]])
+        # img_attn.set_data(obj_attention[idx[0]])
 
         _, _, occ_map = depth_layer_proj(depth[idx[0]], rgb[idx[0]], cfg=cfg)
         img_occ.set_data(occ_map)
@@ -457,16 +457,18 @@ if __name__ == "__main__":
     data = np.load(args.data, mmap_mode='r')
     frames = data['frame']        # (50, 300, 300, 3)
     depths = data['depth']        # (50, 300, 300)
-    attn   = data['obj_attention']# (50, 300, 300)
+    # attn   = data['obj_attention']# (50, 300, 300)
     if 'height' in data.keys():
         print("Height data found, using it for filtering.")
         heights = data['height']   
     else:
         heights = None  
 
+    heights = None
+
     if args.mode == 'viewer':
         app = PointCloudFilterApp(depths, frames,  heights, cfg=cfg)
     elif args.mode == 'plot':
-        plot_data_frame(frames, depths, attn, heights, cfg=cfg)
+        plot_data_frame(frames, depths, heights, cfg=cfg)
 
 
