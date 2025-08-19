@@ -18,7 +18,7 @@ class Config:
         }
 
         self.transform_cfg = transform_cfg or {
-            "rotate_points": [['z', -30]],      # 旋转30°，Z轴
+            "rotate_points": [['x', -30]],      # 旋转30°
             "filter_points": [['y', -0.25, 0.25]],  # 过滤 Y 轴范围
         }
 
@@ -39,177 +39,199 @@ class Config:
             projection_cfg=data.get("projection_cfg", None)
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        """ 导出字典形式，方便调试或打印 """
-        return {
-            "sensor_cfg": self.sensor_cfg,
-            "transform_cfg": self.transform_cfg,
-            "projection_cfg": self.projection_cfg
-        }
-
-    def __repr__(self):
-        return yaml.dump(self.to_dict(), allow_unicode=True, sort_keys=False)
-
-
-def ratate_points(points, rotates:None):
+def rotate_points(points, rotates=None):
     """
-    左手坐标系 SO(3) 旋转矩阵
-    pts: 点云坐标, (N, 3) ndarray
-    axis: 旋转轴，形如 'x'/'y'/'z' 或 3 元 numpy 向量
-    theta_deg: 旋转角度（单位：度，正方向为左手系规则）
+    旋转点云 - 使用标准的旋转矩阵
+    points: 点云坐标, (N, 3) ndarray
+    rotates: 旋转参数列表 [(axis, angle_deg), ...]
     """
+    if rotates is None or len(rotates) == 0:
+        return points
+    
     R = np.eye(3)
-    if rotates is not None:
-        for axis, theta_deg in rotates:
-            # 如果是字符，转成向量
-            if isinstance(axis, str):
-                axis = axis.lower()
-                if axis == 'x':
-                    axis = np.array([1.0, 0.0, 0.0])
-                elif axis == 'y':
-                    axis = np.array([0.0, 1.0, 0.0])
-                elif axis == 'z':
-                    axis = np.array([0.0, 0.0, 1.0])
-                else:
-                    raise ValueError("axis 必须是 'x', 'y', 'z' 或一个 3 元向量")
+    
+    for axis, theta_deg in rotates:
+        theta = np.deg2rad(theta_deg)
+        
+        if isinstance(axis, str):
+            axis = axis.lower()
+            if axis == 'x':
+                # 绕X轴旋转
+                R_axis = np.array([
+                    [1, 0, 0],
+                    [0, np.cos(theta), -np.sin(theta)],
+                    [0, np.sin(theta), np.cos(theta)]
+                ])
+            elif axis == 'y':
+                # 绕Y轴旋转
+                R_axis = np.array([
+                    [np.cos(theta), 0, np.sin(theta)],
+                    [0, 1, 0],
+                    [-np.sin(theta), 0, np.cos(theta)]
+                ])
+            elif axis == 'z':
+                # 绕Z轴旋转
+                R_axis = np.array([
+                    [np.cos(theta), -np.sin(theta), 0],
+                    [np.sin(theta), np.cos(theta), 0],
+                    [0, 0, 1]
+                ])
             else:
-                axis = np.asarray(axis, dtype=float)
-
-            # 归一化
+                raise ValueError("axis 必须是 'x', 'y', 'z'")
+        else:
+            # 使用Rodrigues公式处理任意轴旋转
+            axis = np.asarray(axis, dtype=float)
             axis = axis / np.linalg.norm(axis)
-            # 左手系相当于右手系角度取负
-            theta = np.deg2rad(-theta_deg)
-
-            # 叉乘矩阵
+            
             K = np.array([
                 [0, -axis[2], axis[1]],
                 [axis[2], 0, -axis[0]],
                 [-axis[1], axis[0], 0]
             ])
-            R = (np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)) @ R
+            R_axis = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+        
+        R = R_axis @ R
+    
     return points @ R.T
 
 def filter_points(points, colors, filters=None):
     """
     多轴联合范围过滤
-
-    参数:
-        points: (N, 3) ndarray 点云
-        colors: (N, 3) ndarray 颜色
-        filters: [dict 或 list/tuple, 指定每个轴的范围]
-            - 如果是 dict: {axis: (min, max)}
-            - 如果是 list/tuple: [(axis, min, max), ...]
-
-    返回:
-        过滤后的 (points, colors)
     """
+    if filters is None or len(filters) == 0:
+        return points, colors
+        
     mask = np.ones(points.shape[0], dtype=bool)
 
-    if filters is None:
-        return points, colors
-
-    if isinstance(filters, dict):
-        items = filters.items()
-    else:
-        items = filters
-
-    for item in items:
-        print(f"Processing filter item: {item}")
+    for item in filters:
         if isinstance(item, list) and len(item) == 3:
             axis, min_val, max_val = item
-        else:  # dict 形式
-            axis, (min_val, max_val) = item
+        else:
+            raise ValueError("过滤项必须是 [axis, min_val, max_val] 格式")
 
         if isinstance(axis, str):
             axis = axis.lower()
-            if axis == 'x':
-                axis = 0
-            elif axis == 'y':
-                axis = 1
-            elif axis == 'z':
-                axis = 2
-            else:
-                raise ValueError("axis 必须是 'x', 'y', 'z' 或 0, 1, 2")
+            axis_idx = {'x': 0, 'y': 1, 'z': 2}[axis]
+        else:
+            axis_idx = axis
+
         if min_val is not None:
-            mask &= points[:, axis] >= min_val
+            mask &= points[:, axis_idx] >= min_val
         if max_val is not None:
-            mask &= points[:, axis] <= max_val
+            mask &= points[:, axis_idx] <= max_val
 
-    return points[mask], colors[mask]
-
-def depth_transform(pts, color, cfg: Config):
-    """
-    点云变换
-    """
-    print(f"Transforming points with config: {cfg}")
-    return filter_points(
-        ratate_points(pts, cfg.transform_cfg['rotate_points']), 
-        color, 
-        cfg.transform_cfg['filter_points'])
+    return points[mask], colors[mask] if colors is not None else None
 
 def depth_to_pointcloud(depth, 
-                        rgb=None, 
-                        height=None,
-                        cfg: Config=Config()):
+                       rgb=None, 
+                       height=None,
+                       cfg: Config = None,
+                       coordinate_system='opengl'):
     """
-    转换到相机坐标系下：X右为正， Y上为正，Z前为正
+    深度图转换为点云
+    
+    参数:
+        depth: HxW 深度图
+        rgb: HxWx3 RGB图像 (可选)
+        height: 相机高度，用于地面过滤 (可选)
+        cfg: 配置对象
+        coordinate_system: 坐标系约定 ('opencv' 或 'opengl')
+            - opencv: X右, Y下, Z前
+            - opengl: X右, Y上, Z前
     """
+    if cfg is None:
+        cfg = Config()
+    
     H, W = depth.shape
     fov_x, fov_y = np.deg2rad(cfg.sensor_cfg['fov_deg'][0]), np.deg2rad(cfg.sensor_cfg['fov_deg'][1])
-    cx, cy = (W-1)/2.0, (H-1)/2.0
-    fx = W / (2*np.tan(fov_x/2))
-    fy = H / (2*np.tan(fov_y/2))
+    
+    # 计算内参
+    fx = W / (2 * np.tan(fov_x / 2))
+    fy = H / (2 * np.tan(fov_y / 2))
+    cx, cy = (W - 1) / 2.0, (H - 1) / 2.0
+    
+    # 应用深度缩放
     Z = depth.astype(np.float32) * cfg.sensor_cfg['dist_scale']
+    
+    # 创建像素坐标网格
     u = np.arange(W)
     v = np.arange(H)
     uu, vv = np.meshgrid(u, v)
+    
+    # 转换到相机坐标系
     X = (uu - cx) * Z / fx
-    Y = (vv - cy) * Z / fy
-    pts = np.stack([X, -Y, -Z], axis=-1).reshape(-1,3)
+    
+    if coordinate_system == 'opencv':
+        # OpenCV坐标系：Y向下
+        Y = (vv - cy) * Z / fy
+    elif coordinate_system == 'opengl':
+        # OpenGL坐标系：Y向上
+        Y = -(vv - cy) * Z / fy
+    else:
+        raise ValueError("coordinate_system 必须是 'opencv' 或 'opengl'")
+    
+    # 组合点云
+    pts = np.stack([X, Y, -Z], axis=-1).reshape(-1, 3)
+    
+    # 过滤有效深度点
     mask = Z.reshape(-1) > 0
     pts = pts[mask]
+    
+    # 处理颜色
     color = None
     if rgb is not None:
-        # 假设 rgb 是 HxWx3
-        color = rgb.reshape(-1,3)[mask] / 255.0  # 转为 [0,1] 浮点
+        color = rgb.reshape(-1, 3)[mask] / 255.0
+    
+    # 根据相机高度添加地面过滤
     if height is not None:
-        cfg.transform_cfg['filter_points'].append(['y', [-height+0.2, None]])
-    return depth_transform(pts, color, cfg)
+        if coordinate_system == 'opengl':
+            # Y向上的坐标系，地面在-height附近
+            ground_filter = ['y', -height, None]
+        else:
+            # Y向下的坐标系，地面在height附近
+            ground_filter = ['y', None, height]
+        
+        if 'filter_points' not in cfg.transform_cfg:
+            cfg.transform_cfg['filter_points'] = []
+        cfg.transform_cfg['filter_points'].append(ground_filter)
+    
+    # 应用变换
+    if 'rotate_points' in cfg.transform_cfg:
+        pts = rotate_points(pts, cfg.transform_cfg['rotate_points'])
+    
+    if 'filter_points' in cfg.transform_cfg:
+        pts, color = filter_points(pts, color, cfg.transform_cfg['filter_points'])
+    
+    return pts, color
 
 def depth_layer_proj(depth, 
-                     rgb = None, 
-                     height = None,
-                     cfg: Config = Config()):
+                    rgb=None, 
+                    height=None,
+                    cfg: Config = None):
     """
-    传入点云：Nx3, 投影到二维平面 (X-Y)，考虑遮挡效应，生成占用栅格地图。
-    
-    参数:
-        depth: np.ndarray
-        color: np.ndarray
-        resolution: float, 栅格分辨率 (米/格)
-        size: int, 栅格大小 (size x size)
-    
-    返回:
-        layer: np.ndarray, 过滤的点云
-        color: np.ndarray, 点云对应的颜色
-        occ_map: np.ndarray, 0-1 占用地图 (size x size)
+    深度图投影到占用栅格地图
     """
+    if cfg is None:
+        cfg = Config()
+    
+    # 转换为点云
     layer, color = depth_to_pointcloud(depth, rgb=rgb, height=height, cfg=cfg)
+    
     size = cfg.projection_cfg['map_size']
     resolution = cfg.projection_cfg['map_resolution']
+    
     # 初始化占用地图和深度图
     occ_map = np.zeros((size, size), dtype=np.uint8)
     depth_map = np.full((size, size), np.inf)
 
-    # 将点云转换为栅格坐标 
-    # 假设地图中心是 (0,0)，所以要平移到正坐标
+    # 将点云转换为栅格坐标
     half = size // 2
-    grid_x = np.floor(-layer[:, 2] / resolution).astype(int) + half
-    grid_y = np.floor(layer[:, 0] / resolution).astype(int) + half
+    grid_x = np.floor(layer[:, 0] / resolution).astype(int) + half  # X对应栅格X
+    grid_y = np.floor(layer[:, 2] / resolution).astype(int) + half  # Z对应栅格Y
 
     # 过滤掉超出范围的点
     valid_mask = (grid_x >= 0) & (grid_x < size) & (grid_y >= 0) & (grid_y < size)
-    grid_x, grid_y, z = grid_x[valid_mask], grid_y[valid_mask], -layer[valid_mask, 1]
+    grid_x, grid_y, z = grid_x[valid_mask], grid_y[valid_mask], layer[valid_mask, 1]  # 使用Y作为高度
 
     # 遍历点云，更新占用栅格（只取最近点，模拟遮挡效应）
     for gx, gy, gz in zip(grid_x, grid_y, z):
