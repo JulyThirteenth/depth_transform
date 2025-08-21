@@ -1,3 +1,8 @@
+# coordinate_system: 坐标系约定 ('opencv' 或 'opengl')
+#             - opencv: X右, Y下, Z前
+#             - opengl: X右, Y上, Z前
+coordinate_system: 'opengl' # 'opengl' or 'opencv'
+
 sensor_cfg:
   fov_deg: [90.0,90.0]
   dist_scale: 1
@@ -8,4 +13,6 @@ transform_cfg: # Poincloud以X右为正， Y上为正，Z前为正
 
 projection_cfg:
   map_resolution: 0.1
-  map_size: 80
+  map_size: 100 # 100x100
+
+

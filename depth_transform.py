@@ -8,13 +8,18 @@ from typing import Dict, Any
 
 class Config:
     def __init__(self,
+                 corrdinate_system: str = 'opengl',
+                 # 默认配置
                  sensor_cfg: Dict[str, Any] = None,
                  transform_cfg: Dict[str, Any] = None,
                  projection_cfg: Dict[str, Any] = None):
+        self.coordinate_system = corrdinate_system.lower()
+        if self.coordinate_system not in ['opengl', 'opencv']:
+            raise ValueError("coordinate_system 必须是 'opengl' 或 'opencv'")
         # 默认参数
         self.sensor_cfg = sensor_cfg or {
             "fov_deg": [90.0, 90.0],
-            "dist_scale": 10.0,
+            "dist_scale": 1.0,
         }
 
         self.transform_cfg = transform_cfg or {
@@ -125,8 +130,7 @@ def filter_points(points, colors, filters=None):
 def depth_to_pointcloud(depth, 
                        rgb=None, 
                        height=None,
-                       cfg: Config = None,
-                       coordinate_system='opengl'):
+                       cfg: Config = None):
     """
     深度图转换为点云
     
@@ -135,9 +139,6 @@ def depth_to_pointcloud(depth,
         rgb: HxWx3 RGB图像 (可选)
         height: 相机高度，用于地面过滤 (可选)
         cfg: 配置对象
-        coordinate_system: 坐标系约定 ('opencv' 或 'opengl')
-            - opencv: X右, Y下, Z前
-            - opengl: X右, Y上, Z前
     """
     if cfg is None:
         cfg = Config()
@@ -161,10 +162,10 @@ def depth_to_pointcloud(depth,
     # 转换到相机坐标系
     X = (uu - cx) * Z / fx
     
-    if coordinate_system == 'opencv':
+    if cfg.coordinate_system == 'opencv':
         # OpenCV坐标系：Y向下
         Y = (vv - cy) * Z / fy
-    elif coordinate_system == 'opengl':
+    elif cfg.coordinate_system == 'opengl':
         # OpenGL坐标系：Y向上
         Y = -(vv - cy) * Z / fy
     else:
@@ -191,7 +192,7 @@ def depth_to_pointcloud(depth,
 
     # 根据相机高度添加地面过滤
     if height is not None:
-        if coordinate_system == 'opengl':
+        if cfg.coordinate_system == 'opengl':
             # Y向上的坐标系，地面在-height附近
             ground_filter = ['y', -height, None]
         else:
@@ -238,6 +239,45 @@ def depth_layer_proj(depth,
             occ_map[gx, gy] = 1
 
     return layer, color, occ_map
+
+# For development and testing in RL
+def depth_layer_proj_api(
+    depth, 
+    rgb=None, 
+    height=None, 
+    fov_deg=[90.0, 90.0], # 默认90度视场角
+    dist_scale=1.0, # 默认深度缩放比例1.0
+    rotate_points=[['x', -30]],  # 默认旋转30°
+    filter_points=[['y', -0.25, 0.25]],  # 默认过滤Y轴范围上下25cm
+    map_resolution=0.2, # 默认地图分辨率20cm
+    map_size=100, # 默认地图大小100x100
+    coordinate_system='opengl'):
+    """    深度图投影到占用栅格地图 - API接口
+    参数:
+        depth: HxW 深度图
+        rgb: HxWx3 RGB图像 (可选)
+        height: 相机高度，用于地面过滤 (可选)
+        fov_deg: 相机水平和垂直视场角 (默认 [90.0, 90.0])
+        dist_scale: 深度缩放比例 (默认 1.0)
+        rotate_points: 旋转参数列表 (默认 [['x', -30]] 旋转30°)
+        filter_points: 过滤参数列表 (默认 [['y', -0.25, 0.25]] 过滤Y轴范围上下25cm)
+        map_resolution: 占用栅格地图分辨率 (默认 0.2m)
+        map_size: 占用栅格地图大小 (默认 100x100)
+        coordinate_system: 坐标系 ('opengl' 或 'opencv', 默认 'opengl')
+    returns:
+        layer: 点云坐标 (N, 3) ndarray
+        color: 点云颜色 (N, 3) ndarray (如果有RGB图像)
+        occ_map: 占用栅格地图 (size, size) ndarray
+    """
+    cfg = Config(
+        corrdinate_system=coordinate_system,
+        sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
+        transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
+        projection_cfg={"map_resolution": map_resolution, "map_size": map_size}
+    )
+    layer, color, occ_map = depth_layer_proj(depth, rgb=rgb, height=height, cfg=cfg)
+    return layer, color, occ_map
+
 
 # ---------------------- 可视化 ----------------------
 def rotation_matrix_to_euler_angles(R):
@@ -414,6 +454,17 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
                                      rgb[idx[0]], 
                                      height=height[idx[0]] if height is not None else None,
                                      cfg=cfg)
+    # test API
+    # _, _, occ_map = depth_layer_proj_api(depth[idx[0]], 
+    #                                      rgb=rgb[idx[0]] if rgb is not None else None,
+    #                                      height=height[idx[0]] if height is not None else None,
+    #                                      fov_deg=cfg.sensor_cfg['fov_deg'],
+    #                                      dist_scale=cfg.sensor_cfg['dist_scale'],
+    #                                      rotate_points=cfg.transform_cfg['rotate_points'],
+    #                                      filter_points=cfg.transform_cfg['filter_points'],
+    #                                      map_resolution=cfg.projection_cfg['map_resolution'],
+    #                                      map_size=cfg.projection_cfg['map_size'],
+    #                                      coordinate_system=cfg.coordinate_system)
     img_occ = axes[2].imshow(occ_map, cmap="gray", origin="lower")
     axes[2].set_title("Occ Map")
  
@@ -448,9 +499,13 @@ if __name__ == "__main__":
     parser.add_argument("--cfg", type=str,help="参数配置文件路径（.yaml)")
     parser.add_argument("--data", type=str,
                         help="输入数据文件路径 (.npz)")
-    parser.add_argument("--mode", type=str, choices=["viewer", "plot"], default="app",
-                        help="运行模式: 'app' 显示点云交互界面, 'plot' 绘制图像结果")
+    parser.add_argument("--mode", type=str, choices=["viewer", "plot"], default="plot",
+                        help="运行模式: 'viewer' 显示点云交互界面, 'plot' 绘制图像结果")
     args = parser.parse_args()
+    if not args.cfg:
+        args.cfg = "./depth_transform.yaml"
+    if not args.data:
+        args.data = "./data/data_batch_2.npz"
     cfg = Config.from_yaml(args.cfg)
     data = np.load(args.data, mmap_mode='r')
     frames = data['frame']        # (50, 300, 300, 3)

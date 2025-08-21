@@ -2,8 +2,47 @@
 A Script for transform from RGBD or Depth to Point Cloud, Occupancy Map
 
 # Usage
+Here is a api which is convinient for using in sigle line code:
+```
+def depth_layer_proj_api(
+    depth, 
+    rgb=None, 
+    height=None, 
+    fov_deg=[90.0, 90.0], # 默认90度视场角
+    dist_scale=1.0, # 默认深度缩放比例1.0
+    rotate_points=[['x', -30]],  # 默认旋转30°
+    filter_points=[['y', -0.25, 0.25]],  # 默认过滤Y轴范围上下25cm
+    map_resolution=0.2, # 默认地图分辨率20cm
+    map_size=100, # 默认地图大小100x100
+    coordinate_system='opengl'):
+    """    深度图投影到占用栅格地图 - API接口
+    参数:
+        depth: HxW 深度图
+        rgb: HxWx3 RGB图像 (可选)
+        height: 相机高度，用于地面过滤 (可选)
+        fov_deg: 相机水平和垂直视场角 (默认 [90.0, 90.0])
+        dist_scale: 深度缩放比例 (默认 1.0)
+        rotate_points: 旋转参数列表 (默认 [['x', -30]] 旋转30°)
+        filter_points: 过滤参数列表 (默认 [['y', -0.25, 0.25]] 过滤Y轴范围上下25cm)
+        map_resolution: 占用栅格地图分辨率 (默认 0.2m)
+        map_size: 占用栅格地图大小 (默认 100x100)
+        coordinate_system: 坐标系 ('opengl' 或 'opencv', 默认 'opengl')
+    returns:
+        layer: 点云坐标 (N, 3) ndarray
+        color: 点云颜色 (N, 3) ndarray (如果有RGB图像)
+        occ_map: 占用栅格地图 (size, size) ndarray
+    """
+    cfg = Config(
+        corrdinate_system=coordinate_system,
+        sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
+        transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
+        projection_cfg={"map_resolution": map_resolution, "map_size": map_size}
+    )
+    layer, color, occ_map = depth_layer_proj(depth, rgb=rgb, height=height, cfg=cfg)
+    return layer, color, occ_map
+```
 
-Here are two functions which can be used for other projects:
+Here are another two functions which can be used for other projects:
 * depth_to_pointcloud: The transform from RGBD or Depth to Point Cloud:
   * depth: depth information
   * rgb: img, can be none
