@@ -18,6 +18,7 @@ Coordinate systems:
 This refactor keeps parity with the previous implementation and also exposes
 some old function names as aliases for backward compatibility.
 """
+
 from __future__ import annotations
 
 from typing import Iterable, List, Optional, Sequence, Tuple
@@ -36,7 +37,10 @@ from .depth_cfg import (
 # Camera intrinsics helpers
 # -----------------------------------------------------------------------------
 
-def intrinsics_from_fov(width: int, height: int, fov_deg: Sequence[float]) -> Tuple[float, float, float, float]:
+
+def intrinsics_from_fov(
+    width: int, height: int, fov_deg: Sequence[float]
+) -> Tuple[float, float, float, float]:
     """
     Compute pinhole intrinsics (fx, fy, cx, cy) from image size and FOV.
 
@@ -61,11 +65,12 @@ def intrinsics_from_fov(width: int, height: int, fov_deg: Sequence[float]) -> Tu
 # Depth <-> point-cloud transforms
 # -----------------------------------------------------------------------------
 
+
 def depth_to_pointcloud(
     depth: np.ndarray,
     fov_deg: Sequence[float] = (90.0, 90.0),
     dist_scale: float = 1.0,
-    coordinate_system: str = 'opengl',
+    coordinate_system: str = "opengl",
 ) -> np.ndarray:
     """
     Convert a depth map (H×W) to a point cloud (H×W×3) in the camera frame.
@@ -104,10 +109,10 @@ def depth_to_pointcloud(
     X = (uu - cx) * Z / fx
 
     cs = coordinate_system.lower()
-    if cs == 'opencv':
-        Y = (vv - cy) * Z / fy   # Y down
+    if cs == "opencv":
+        Y = (vv - cy) * Z / fy  # Y down
         Zcam = +Z
-    elif cs == 'opengl':
+    elif cs == "opengl":
         Y = -(vv - cy) * Z / fy  # Y up
         Zcam = -Z
     else:
@@ -142,7 +147,7 @@ def pointcloud_to_depth(
     H, W = int(height), int(width)
     fx, fy, cx, cy = intrinsics_from_fov(W, H, fov_deg)
 
-    Zfwd = -pts[:, 2] if coordinate_system.lower() == 'opengl' else pts[:, 2]
+    Zfwd = -pts[:, 2] if coordinate_system.lower() == "opengl" else pts[:, 2]
     valid = Zfwd > 0.0
     if not np.any(valid):
         return np.full((H, W), fill_value, dtype=np.float32)
@@ -169,10 +174,12 @@ def pointcloud_to_depth(
     if aggregation == "zmin":
         buf = np.full((H, W), np.inf, dtype=np.float32)
         for px, py, z in zip(ui, vi, Zfwd):
-            x0 = max(0, px - r); x1 = min(W - 1, px + r)
-            y0 = max(0, py - r); y1 = min(H - 1, py + r)
-            block = buf[y0:y1+1, x0:x1+1]
-            buf[y0:y1+1, x0:x1+1] = np.minimum(block, z)
+            x0 = max(0, px - r)
+            x1 = min(W - 1, px + r)
+            y0 = max(0, py - r)
+            y1 = min(H - 1, py + r)
+            block = buf[y0 : y1 + 1, x0 : x1 + 1]
+            buf[y0 : y1 + 1, x0 : x1 + 1] = np.minimum(block, z)
         out = np.full_like(buf, fill_value, dtype=np.float32)
         mask = np.isfinite(buf)
         out[mask] = (buf[mask] / dist_scale).astype(np.float32)
@@ -181,10 +188,12 @@ def pointcloud_to_depth(
     elif aggregation == "zmax":
         buf = np.full((H, W), -np.inf, dtype=np.float32)
         for px, py, z in zip(ui, vi, Zfwd):
-            x0 = max(0, px - r); x1 = min(W - 1, px + r)
-            y0 = max(0, py - r); y1 = min(H - 1, py + r)
-            block = buf[y0:y1+1, x0:x1+1]
-            buf[y0:y1+1, x0:x1+1] = np.maximum(block, z)
+            x0 = max(0, px - r)
+            x1 = min(W - 1, px + r)
+            y0 = max(0, py - r)
+            y1 = min(H - 1, py + r)
+            block = buf[y0 : y1 + 1, x0 : x1 + 1]
+            buf[y0 : y1 + 1, x0 : x1 + 1] = np.maximum(block, z)
         out = np.full_like(buf, fill_value, dtype=np.float32)
         mask = np.isfinite(buf)
         out[mask] = (buf[mask] / dist_scale).astype(np.float32)
@@ -194,10 +203,12 @@ def pointcloud_to_depth(
         acc = np.zeros((H, W), dtype=np.float64)
         cnt = np.zeros((H, W), dtype=np.int32)
         for px, py, z in zip(ui, vi, Zfwd):
-            x0 = max(0, px - r); x1 = min(W - 1, px + r)
-            y0 = max(0, py - r); y1 = min(H - 1, py + r)
-            acc[y0:y1+1, x0:x1+1] += z
-            cnt[y0:y1+1, x0:x1+1] += 1
+            x0 = max(0, px - r)
+            x1 = min(W - 1, px + r)
+            y0 = max(0, py - r)
+            y1 = min(H - 1, py + r)
+            acc[y0 : y1 + 1, x0 : x1 + 1] += z
+            cnt[y0 : y1 + 1, x0 : x1 + 1] += 1
         out = np.full((H, W), fill_value, dtype=np.float32)
         valid = cnt > 0
         out[valid] = (acc[valid] / cnt[valid] / dist_scale).astype(np.float32)
@@ -205,20 +216,25 @@ def pointcloud_to_depth(
 
     else:
         raise ValueError("aggregation must be 'zmin', 'zmax', or 'zmean'")
-    
 
 
 # -----------------------------------------------------------------------------
 # Point-cloud transforms: rotation and filtering
 # -----------------------------------------------------------------------------
 
+
 def _axis_to_matrix(axis: np.ndarray, theta: float) -> np.ndarray:
     """Rodrigues' formula for arbitrary axis rotation."""
     axis = np.asarray(axis, dtype=float)
-    axis /= (np.linalg.norm(axis) + 1e-12)
-    K = np.array([[0, -axis[2], axis[1]],
-                  [axis[2], 0, -axis[0]],
-                  [-np.around(axis[1], 12), axis[0], 0]], dtype=float)
+    axis /= np.linalg.norm(axis) + 1e-12
+    K = np.array(
+        [
+            [0, -axis[2], axis[1]],
+            [axis[2], 0, -axis[0]],
+            [-np.around(axis[1], 12), axis[0], 0],
+        ],
+        dtype=float,
+    )
     R = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
     return R
 
@@ -236,28 +252,44 @@ def rotate_points(points: np.ndarray, rotates: Optional[Iterable] = None) -> np.
         theta = np.deg2rad(theta_deg)
         if isinstance(axis, str):
             a = axis.lower()
-            if a == 'x':
-                R_axis = np.array([[1, 0, 0],
-                                   [0, np.cos(theta), -np.sin(theta)],
-                                   [0, np.sin(theta),  np.cos(theta)]], dtype=float)
-            elif a == 'y':
-                R_axis = np.array([[ np.cos(theta), 0, np.sin(theta)],
-                                   [0, 1, 0],
-                                   [-np.sin(theta), 0, np.cos(theta)]], dtype=float)
-            elif a == 'z':
-                R_axis = np.array([[np.cos(theta), -np.sin(theta), 0],
-                                   [np.sin(theta),  np.cos(theta), 0],
-                                   [0, 0, 1]], dtype=float)
+            if a == "x":
+                R_axis = np.array(
+                    [
+                        [1, 0, 0],
+                        [0, np.cos(theta), -np.sin(theta)],
+                        [0, np.sin(theta), np.cos(theta)],
+                    ],
+                    dtype=float,
+                )
+            elif a == "y":
+                R_axis = np.array(
+                    [
+                        [np.cos(theta), 0, np.sin(theta)],
+                        [0, 1, 0],
+                        [-np.sin(theta), 0, np.cos(theta)],
+                    ],
+                    dtype=float,
+                )
+            elif a == "z":
+                R_axis = np.array(
+                    [
+                        [np.cos(theta), -np.sin(theta), 0],
+                        [np.sin(theta), np.cos(theta), 0],
+                        [0, 0, 1],
+                    ],
+                    dtype=float,
+                )
             else:
                 raise ValueError("axis must be 'x', 'y', or 'z' when given as str")
         else:
             R_axis = _axis_to_matrix(np.asarray(axis, dtype=float), theta)
         R = R_axis @ R
-    return (points @ R.T)
+    return points @ R.T
 
 
-def filter_points(points: np.ndarray, colors: Optional[np.ndarray], filters: Optional[Iterable] = None
-                  ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+def filter_points(
+    points: np.ndarray, colors: Optional[np.ndarray], filters: Optional[Iterable] = None
+) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
     Generic multi-axis range filter for point-clouds.
 
@@ -273,7 +305,7 @@ def filter_points(points: np.ndarray, colors: Optional[np.ndarray], filters: Opt
             raise ValueError("Each filter item must be [axis, min_val, max_val]")
         axis, min_val, max_val = item
         if isinstance(axis, str):
-            idx = {'x': 0, 'y': 1, 'z': 2}[axis.lower()]
+            idx = {"x": 0, "y": 1, "z": 2}[axis.lower()]
         else:
             idx = int(axis)
         if min_val is not None:
@@ -290,11 +322,12 @@ def filter_points(points: np.ndarray, colors: Optional[np.ndarray], filters: Opt
 # High-level pipelines
 # -----------------------------------------------------------------------------
 
+
 def depth_to_filtered_pointcloud(
     depth: np.ndarray,
     rgb: Optional[np.ndarray] = None,
     height: Optional[float] = None,
-    cfg: Optional[Config] = None
+    cfg: Optional[Config] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
     Convert a depth map to a filtered, optionally-rotated point-cloud.
@@ -315,11 +348,11 @@ def depth_to_filtered_pointcloud(
 
     pts = pts_img.reshape(-1, 3)
     valid = np.isfinite(pts).all(axis=1)
-    if cfg.coordinate_system.lower() == 'opengl':
-        valid &= pts[:, 2] < 0                # visible: Z<0 in OpenGL
-        valid &= (-pts[:, 2]) > 1e-3          # >1mm
+    if cfg.coordinate_system.lower() == "opengl":
+        valid &= pts[:, 2] < 0  # visible: Z<0 in OpenGL
+        valid &= (-pts[:, 2]) > 1e-3  # >1mm
     else:
-        valid &= pts[:, 2] > 0                # visible: Z>0 in OpenCV
+        valid &= pts[:, 2] > 0  # visible: Z>0 in OpenCV
         valid &= (pts[:, 2]) > 1e-3
 
     pts = pts[valid]
@@ -337,10 +370,10 @@ def depth_to_filtered_pointcloud(
 
     # Optional ground removal using camera height
     if height is not None:
-        if cfg.coordinate_system.lower() == 'opengl':
-            ground_filter = ['y', -height, None]  # Y up; ground near -height
+        if cfg.coordinate_system.lower() == "opengl":
+            ground_filter = ["y", -height, None]  # Y up; ground near -height
         else:  # 'opencv' (Y down)
-            ground_filter = ['y', None, height]
+            ground_filter = ["y", None, height]
         pts, color = filter_points(pts, color, [ground_filter])
 
     return pts, color
@@ -351,7 +384,7 @@ def map_pts_to_intervals(
     fov_deg: Sequence[float] = (90.0, 90.0),
     n_intervals: int = 30,
     default_value: float = 3.0,
-    aggregation: str = 'min',
+    aggregation: str = "min",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Bin points by horizontal angle into `n_intervals` wedges and aggregate distance.
@@ -369,11 +402,11 @@ def map_pts_to_intervals(
     """
     z_abs = np.abs(pts[:, 2])
     x = pts[:, 0]
-    angle = np.arctan2(z_abs, x)   # radians in [0, pi]
+    angle = np.arctan2(z_abs, x)  # radians in [0, pi]
 
-    angle_boundaries = np.linspace(np.deg2rad(fov_deg[0] / 2.0),
-                                   np.deg2rad(fov_deg[0] * 1.5),
-                                   n_intervals + 1)
+    angle_boundaries = np.linspace(
+        np.deg2rad(fov_deg[0] / 2.0), np.deg2rad(fov_deg[0] * 1.5), n_intervals + 1
+    )
     angle_intervals: List[Tuple[float, float]] = []
     dist_intervals: List[float] = []
 
@@ -391,22 +424,33 @@ def map_pts_to_intervals(
             continue
 
         d = np.sqrt(pts_i[:, 0] ** 2 + pts_i[:, 2] ** 2)
-        if   aggregation == 'min':   dist_intervals.append(float(np.min(d)))
-        elif aggregation == 'max':   dist_intervals.append(float(np.max(d)))
-        elif aggregation == 'mean':  dist_intervals.append(float(np.mean(d)))
-        elif aggregation == 'median':dist_intervals.append(float(np.median(d)))
+        if aggregation == "min":
+            dist_intervals.append(float(np.min(d)))
+        elif aggregation == "max":
+            dist_intervals.append(float(np.max(d)))
+        elif aggregation == "mean":
+            dist_intervals.append(float(np.mean(d)))
+        elif aggregation == "median":
+            dist_intervals.append(float(np.median(d)))
         else:
             raise ValueError(f"Unsupported aggregation: {aggregation}")
 
-    return np.asarray(angle_intervals, dtype=float), np.asarray(dist_intervals, dtype=float)
+    return np.asarray(angle_intervals, dtype=float), np.asarray(
+        dist_intervals, dtype=float
+    )
 
 
 def depth_layer_scan(
     depth: np.ndarray,
     rgb: Optional[np.ndarray] = None,
     height: Optional[float] = None,
-    cfg: Optional[Config] = None
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+    cfg: Optional[Config] = None,
+) -> Tuple[
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+]:
     """
     Compute a (pseudo) laser scan on the X–Z plane from a depth image.
 
@@ -433,7 +477,9 @@ def depth_layer_scan(
 
     angles = (angle_intervals[:, 0] + angle_intervals[:, 1]) * 0.5
     dist = dist.copy()
-    dist[dist > cfg.laserscan.default_value] = cfg.laserscan.default_value  # clamp range
+    dist[dist > cfg.laserscan.default_value] = (
+        cfg.laserscan.default_value
+    )  # clamp range
 
     x_coord = dist * np.cos(angles)
     y_coord = dist * np.sin(angles)
@@ -444,7 +490,7 @@ def depth_layer_proj(
     depth: np.ndarray,
     rgb: Optional[np.ndarray] = None,
     height: Optional[float] = None,
-    cfg: Optional[Config] = None
+    cfg: Optional[Config] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray]:
     """
     Project a depth image into an occupancy grid on the X–Z plane.
@@ -481,7 +527,11 @@ def depth_layer_proj(
     grid_y = np.floor(layer[:, 0] / res).astype(int) + half
 
     valid = (grid_x >= 0) & (grid_x < size) & (grid_y >= 0) & (grid_y < size)
-    gx, gy, z = grid_x[valid], grid_y[valid], layer[valid, 1]  # use Y as height for z-buffering
+    gx, gy, z = (
+        grid_x[valid],
+        grid_y[valid],
+        layer[valid, 1],
+    )  # use Y as height for z-buffering
 
     for i in range(gx.shape[0]):
         x, y, h = int(gx[i]), int(gy[i]), float(z[i])
@@ -496,6 +546,7 @@ def depth_layer_proj(
 # Public convenience APIs (param-based, no Config required by caller)
 # -----------------------------------------------------------------------------
 
+
 def depth_to_filtered_pointcloud_api(
     depth: np.ndarray,
     rgb: Optional[np.ndarray] = None,
@@ -504,13 +555,15 @@ def depth_to_filtered_pointcloud_api(
     dist_scale: float = 1.0,
     rotate_points: Optional[Iterable] = None,
     filter_points_: Optional[Iterable] = None,
-    coordinate_system: str = 'opengl',
+    coordinate_system: str = "opengl",
 ):
     cfg = Config(
         coordinate_system=coordinate_system,
         sensor=SensorConfig(fov_deg=tuple(fov_deg), dist_scale=float(dist_scale)),
-        transform=TransformConfig(rotate_points=list(rotate_points or []),
-                                  filter_points=list(filter_points_ or [])),
+        transform=TransformConfig(
+            rotate_points=list(rotate_points or []),
+            filter_points=list(filter_points_ or []),
+        ),
     )
     return depth_to_filtered_pointcloud(depth, rgb=rgb, height=height, cfg=cfg)
 
@@ -523,24 +576,30 @@ def depth_layer_scan_api(
     dist_scale: float = 1.0,
     rotate_points: Optional[Iterable] = None,
     filter_points_: Optional[Iterable] = None,
-    aggregation: str = 'min',
+    aggregation: str = "min",
     n_intervals: int = 30,
     default_value: float = 3.0,
-    coordinate_system: str = 'opengl',
+    coordinate_system: str = "opengl",
 ):
     cfg = Config(
         coordinate_system=coordinate_system,
         sensor=SensorConfig(fov_deg=tuple(fov_deg), dist_scale=float(dist_scale)),
-        transform=TransformConfig(rotate_points=list(rotate_points or []),
-                                  filter_points=list(filter_points_ or [])),
-        laserscan=LaserScanConfig(aggregation=aggregation,
-                                  n_intervals=int(n_intervals),
-                                  default_value=float(default_value)),
+        transform=TransformConfig(
+            rotate_points=list(rotate_points or []),
+            filter_points=list(filter_points_ or []),
+        ),
+        laserscan=LaserScanConfig(
+            aggregation=aggregation,
+            n_intervals=int(n_intervals),
+            default_value=float(default_value),
+        ),
     )
     x, y, ang, dist = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
     if ang is None or dist is None:
         # return a default equally spaced angle array with ones for distance
-        angle_boundaries = np.linspace(fov_deg[0] / 2.0, fov_deg[0] * 1.5, n_intervals + 1)
+        angle_boundaries = np.linspace(
+            fov_deg[0] / 2.0, fov_deg[0] * 1.5, n_intervals + 1
+        )
         angles = (angle_boundaries[:-1] + angle_boundaries[1:]) * 0.5
         return angles, np.ones_like(angles, dtype=float)
     # Convert radians to degrees and normalize distances
@@ -559,15 +618,18 @@ def depth_layer_proj_api(
     filter_points_: Optional[Iterable] = None,
     map_resolution: float = 0.2,
     map_size: int = 100,
-    coordinate_system: str = 'opengl',
+    coordinate_system: str = "opengl",
 ):
     cfg = Config(
         coordinate_system=coordinate_system,
         sensor=SensorConfig(fov_deg=tuple(fov_deg), dist_scale=float(dist_scale)),
-        transform=TransformConfig(rotate_points=list(rotate_points or []),
-                                  filter_points=list(filter_points_ or [])),
-        projection=ProjectionConfig(map_resolution=float(map_resolution),
-                                    map_size=int(map_size)),
+        transform=TransformConfig(
+            rotate_points=list(rotate_points or []),
+            filter_points=list(filter_points_ or []),
+        ),
+        projection=ProjectionConfig(
+            map_resolution=float(map_resolution), map_size=int(map_size)
+        ),
     )
     return depth_layer_proj(depth, rgb=rgb, height=height, cfg=cfg)
 
@@ -579,15 +641,25 @@ def depth_layer_proj_api(
 
 __all__ = [
     # Configs
-    "SensorConfig", "TransformConfig", "ProjectionConfig", "LaserScanConfig", "Config",
+    "SensorConfig",
+    "TransformConfig",
+    "ProjectionConfig",
+    "LaserScanConfig",
+    "Config",
     # Intrinsics
     "intrinsics_from_fov",
     # Core transforms
-    "depth_to_pointcloud", "pointcloud_to_depth",
+    "depth_to_pointcloud",
+    "pointcloud_to_depth",
     # Point-cloud ops
-    "rotate_points", "filter_points",
+    "rotate_points",
+    "filter_points",
     # Pipelines
-    "depth_to_filtered_pointcloud", "depth_layer_scan", "depth_layer_proj",
+    "depth_to_filtered_pointcloud",
+    "depth_layer_scan",
+    "depth_layer_proj",
     # APIs
-    "depth_to_filtered_pointcloud_api", "depth_layer_scan_api", "depth_layer_proj_api",
+    "depth_to_filtered_pointcloud_api",
+    "depth_layer_scan_api",
+    "depth_layer_proj_api",
 ]

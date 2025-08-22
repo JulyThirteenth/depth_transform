@@ -100,11 +100,11 @@ Here are also two visual tools which will help you a lot:
   input same as above
 
 Open the shell or cmd and use below two commands to have a visual of input and ouput:
-* ``` python .\depth_transform.py --cfg ./depth_transform.yaml --data /path/to/data --mode plot```
+* ``` python .\depth_viz.py --cfg ./depth_transform.yaml --data /path/to/data --mode plot```
   * You can use <-, -> to change frame\
 ![plot](./assets/plot.png)
 ![plot](./assets/plot_1.png)
-* ``` python .\depth_transform.py --cfg ./depth_transform.yaml --data /path/to/data --mode viewer```
+* ``` python .\depth_viz.py --cfg ./depth_transform.yaml --data /path/to/data --mode viewer```
   * You can change frame through silder of Frame on the left side bar\
 ![viewer](./assets/viewer.png)
 
@@ -127,6 +127,5 @@ A statement of parameters in depth_tranform.yaml
 * aggregation: The way of calculate the distance of a block depth
 * n_intervals: The number of intervals for depth scan
 * default_value: The max value of each intervals
-
 
 
