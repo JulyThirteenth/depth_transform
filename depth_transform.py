@@ -295,6 +295,8 @@ def depth_layer_scan(depth,
                                         rgb=rgb, 
                                         height=height,
                                         cfg=cfg)
+    if pts.shape[0] == 0: # 过滤后点云为空，则直接返回None
+        return None, None
     min_x = np.min(pts[:, 0])
     max_x = np.max(pts[:, 0])
     # print(f"Depth scan range: X [{min_x:.2f}, {max_x:.2f}]")
@@ -350,9 +352,13 @@ def depth_layer_scan_api(depth,
         laserscan_cfg={"aggregation": aggregation, "n_intervals": n_intervals, "default_value": default_value}
     )
     x, y = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
-    dist = np.sqrt(x**2 + y**2)
-    dist[dist > default_value] = default_value  # 限制最大距离
-    return angles, dist / default_value  # 归一化距离
+    if x is not None and y is not None:
+        dist = np.sqrt(x**2 + y**2)
+        dist[dist > default_value] = default_value  # 限制最大距离
+        dist = dist / default_value # 归一化距离
+    else: # 过滤点云为None，则直接返回最大距离
+        dist = np.ones_like(angles)
+    return angles, dist
 
 
 
