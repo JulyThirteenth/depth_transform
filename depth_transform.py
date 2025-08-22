@@ -305,13 +305,13 @@ def depth_to_filted_pointcloud(depth,
                               dist_scale=cfg.sensor_cfg['dist_scale'],
                               coordinate_system=cfg.coordinate_system)
     pts = pts_ori.copy().reshape(-1, 3)  # (H*W, 3)
-    mask = pts[:, 2] <= 0  # 过滤掉深度大于0的点
-    pts = pts[mask]  # (有效点数, 3)
-    
-    # 处理颜色
+    valid = np.isfinite(pts).all(axis=1)
+    valid &= pts[:, 2] < 0               # OpenGL: 可见点 z<0，严格小于0，排除 Z=0 的“洞”
+    valid &= (-pts[:, 2]) > 1e-3         # 深度 > 1mm 的阈值，进一步剔除近乎 0 的噪点
+    pts = pts[valid]
     color = None
     if rgb is not None:
-        color = rgb.reshape(-1, 3)[mask] / 255.0
+        color = rgb.reshape(-1, 3)[valid] / 255.0
     
     # 应用变换
     if 'rotate_points' in cfg.transform_cfg:
@@ -379,7 +379,7 @@ def map_pts_to_intervals(pts,
     # print("x:", x)
     # print("angles x>0:", angles)
     # print("max_angle:", np.rad2deg(np.max(angles)), "min_angle:", np.rad2deg(np.min(angles)))
-    angle = np.atan2(np.abs(pts[:, 2]), pts[:, 0])  # 计算每个点的角度，弧度
+    angle = np.arctan2(np.abs(pts[:, 2]), pts[:, 0])  # 计算每个点的角度，弧度
     angle_boundaries = np.linspace(np.deg2rad(fov_deg[0] / 2), np.deg2rad(fov_deg[0]*1.5), n_intervals + 1)
     angle_intervals, dist_intervals = [], []
     for i in range(n_intervals):
@@ -398,6 +398,8 @@ def map_pts_to_intervals(pts,
                 dist_intervals.append(np.max(np.sqrt(pts_in_interval[:, 0]**2 + pts_in_interval[:, 2]**2)))
             elif aggregation == 'mean':
                 dist_intervals.append(np.mean(np.sqrt(pts_in_interval[:, 0]**2 + pts_in_interval[:, 2]**2)))
+            elif aggregation == 'median':
+                dist_intervals.append(np.median(np.sqrt(pts_in_interval[:, 0]**2 + pts_in_interval[:, 2]**2)))
             else:
                 raise ValueError(f"Unsupported aggregation method: {aggregation}")
         else:
@@ -966,6 +968,8 @@ if __name__ == "__main__":
     if not args.data:
         args.data = "./data/data_batch_2.npz"
     cfg = Config.from_yaml(args.cfg)
+    print("Loaded configuration:")
+    print(cfg.__dict__)
     data = np.load(args.data, mmap_mode='r')
     frames = data['frame']        # (50, 300, 300, 3)
     depths = data['depth']        # (50, 300, 300)
@@ -978,6 +982,7 @@ if __name__ == "__main__":
         plt.show()  
     else:
         heights = None  
+    print(f"Load height: {heights}")
 
     if args.mode == 'viewer':
         app = PointCloudFilterApp(depths, frames,  heights, cfg=cfg)
