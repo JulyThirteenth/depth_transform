@@ -3,8 +3,41 @@ A Script for transform from RGBD or Depth to Point Cloud, Occupancy Map
 
 # Usage
 Here are two apis which are convinient for using in sigle line code:
-* depth_t0_laser_scan
-
+* depth_to_laser_scan
+```
+def depth_layer_scan_api(depth,
+                         rgb=None,
+                         height=None,
+                         fov_deg=[90.0, 90.0],
+                         dist_scale=1.0,
+                         rotate_points=[['x', -30]],
+                         filter_points=[['y', -0.25, 0.25]],
+                         aggregation='mean',
+                         n_intervals=30,
+                         default_value=3.0):
+    """ 深度图投影到激光扫描 - API接口
+    参数:   
+        depth: HxW 深度图
+        rgb: HxWx3 RGB图像 (可选)
+        height: 相机高度，用于地面过滤 (可选)
+        n_intervals: 深度扫描的区间数 (默认 30)
+        default_value: 空区间的默认值 (默认 10) 
+    returns:
+        angles: 激光扫描角度 (n_intervals,) ndarray
+        dists: 激光扫描距离 (n_intervals,) ndarray
+    """
+    angles = np.linspace(-fov_deg[0]/2, fov_deg[0]/2, n_intervals)
+    cfg = Config(
+        corrdinate_system='opengl',
+        sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
+        transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
+        laserscan_cfg={"aggregation": aggregation, "n_intervals": n_intervals, "default_value": default_value}
+    )
+    x, y = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
+    dist = np.sqrt(x**2 + y**2)
+    dist[dist > default_value] = default_value  # 限制最大距离
+    return angles, dist / default_value  # 归一化距离
+```
 * depth_to_occ_map:
 ```
 def depth_layer_proj_api(
@@ -88,6 +121,9 @@ A statement of parameters in depth_tranform.yaml
 * filter_points: Filter of output Point Cloud, a example: [['y', -0.25, 0.25], ...]
 * map_resolution: Resolution of Occupancy Map
 * map_size: Side length of Occupancy Map
+* aggregation: The way of calculate the distance of a block depth
+* n_intervals: The number of intervals for depth scan
+* default_value: The max value of each intervals
 
 
 
