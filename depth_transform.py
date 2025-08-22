@@ -343,11 +343,7 @@ def depth_layer_scan(depth,
                                         height=height,
                                         cfg=cfg)
     if pts.shape[0] == 0: # 过滤后点云为空，则直接返回None
-<<<<<<< HEAD
-        return None, None
-=======
         return None, None, None, None
->>>>>>> ea00af3 (dev: add depth_layer_scan_api)
     # min_x = np.min(pts[:, 0])
     # max_x = np.max(pts[:, 0])
     # print(f"Depth scan range: X [{min_x:.2f}, {max_x:.2f}]")
@@ -400,7 +396,7 @@ def depth_layer_scan_api(depth,
         n_intervals: 深度扫描的区间数 (默认 30)
         default_value: 空区间的默认值 (默认 3) 
     returns:
-        angles: 激光扫描角度 (n_intervals,) ndarray
+        angles: 激光扫描角度 (n_intervals,) ndarray, 角度制
         dists: 激光扫描距离 (n_intervals,) ndarray
     """
     # angles = np.linspace(fov_deg[0]/2, -fov_deg[0]/2, n_intervals)
@@ -410,12 +406,14 @@ def depth_layer_scan_api(depth,
         transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
         laserscan_cfg={"aggregation": aggregation, "n_intervals": n_intervals, "default_value": default_value}
     )
-    x, y, angles, dist = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
-    if x is not None and y is not None:
+    _, _, angles, dist = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
+    if angles is not None and dist is not None:
+        angles = np.rad2deg(angles)  # 转为角度
         dist = dist / default_value # 归一化距离
     else: # 过滤点云为None，则直接返回最大距离
+        angles = np.linspace(fov_deg[0]/2, fov_deg[0] * 1.5, n_intervals)
         dist = np.ones_like(angles)
-    return np.rad2deg(angles), dist
+    return angles, dist
 
 
 
