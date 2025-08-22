@@ -35,7 +35,7 @@ class Config:
         self.laserscan_cfg = laserscan_cfg or {
             "aggregation": 'mean',  # 'mean', 'max', 'min', 'all'
             "n_intervals": 30,  # 深度扫描的区间数
-            "default_value": 10,  # 空区间的默认值
+            "default_value": 3,  # 空区间的默认值
         }
 
     @classmethod
@@ -226,8 +226,11 @@ def depth_to_filted_pointcloud(depth,
     
     return pts, color
 
-def map_array_to_intervals(arr_key, arr_val, min_val, max_val, n_intervals, 
-                                  default_value=100, aggregation='min'):
+def map_pts_to_intervals(pts, 
+                         fov_deg=[90.0, 90.0],
+                         n_intervals=30, 
+                         default_value=3.0, 
+                         aggregation='min'):
     """
     高级版本：支持多种聚合方法
     
@@ -237,52 +240,96 @@ def map_array_to_intervals(arr_key, arr_val, min_val, max_val, n_intervals,
         聚合方法: 'first', 'last', 'mean', 'median', 'sum', 'count', 'all', 'min'
     """
     
-    boundaries = np.linspace(min_val, max_val, n_intervals + 1)
-    result_values = []
-    intervals = []
     
+
+    # x = pts[:, 0][pts[:, 0] < 0]  # 只考虑X<0的点
+    # y = pts[:, 2][pts[:, 0] < 0]  # 对应的Y值
+    # angles = np.atan2(np.abs(y), x)  # 计算每个点的角度
+    # print("y:", y)
+    # print("x:", x)
+    # print("angles x<0:", angles)
+    # print("max_angle:", np.rad2deg(np.max(angles)), "min_angle:", np.rad2deg(np.min(angles)))
+    # x = pts[:, 0][pts[:, 0] > 0]  # 只考虑X<0的点
+    # y = pts[:, 2][pts[:, 0] > 0]  # 对应的Y值
+    # angles = np.atan2(np.abs(y), x)  # 计算每个点的角度
+    # print("y:", y)
+    # print("x:", x)
+    # print("angles x>0:", angles)
+    # print("max_angle:", np.rad2deg(np.max(angles)), "min_angle:", np.rad2deg(np.min(angles)))
+    angle = np.atan2(np.abs(pts[:, 2]), pts[:, 0])  # 计算每个点的角度，弧度
+    angle_boundaries = np.linspace(np.deg2rad(fov_deg[0] / 2), np.deg2rad(fov_deg[0]*1.5), n_intervals + 1)
+    angle_intervals, dist_intervals = [], []
     for i in range(n_intervals):
-        start = boundaries[i]
-        end = boundaries[i + 1]
-        intervals.append((start, end))
-        
+        start = angle_boundaries[i]
+        end = angle_boundaries[i + 1]
+        angle_intervals.append([start, end])
         if i == n_intervals - 1:
-            mask = (arr_key >= start) & (arr_key <= end)
+            mask = (angle >= start) & (angle <= end)
         else:
-            mask = (arr_key >= start) & (arr_key < end)
-        
-        values_in_interval = arr_val[mask]
-        
-        if len(values_in_interval) > 0:
-            if aggregation == 'first':
-                result_values.append(values_in_interval[0])
-            elif aggregation == 'last':
-                result_values.append(values_in_interval[-1])
+            mask = (angle >= start) & (angle < end)
+        pts_in_interval = pts[mask]
+        if len(pts_in_interval) > 0:
+            if aggregation == 'min':
+                dist_intervals.append(np.min(np.sqrt(pts_in_interval[:, 0]**2 + pts_in_interval[:, 2]**2)))
+            elif aggregation == 'max':
+                dist_intervals.append(np.max(np.sqrt(pts_in_interval[:, 0]**2 + pts_in_interval[:, 2]**2)))
             elif aggregation == 'mean':
-                result_values.append(np.mean(values_in_interval))
-            elif aggregation == 'median':
-                result_values.append(np.median(values_in_interval))
-            elif aggregation == 'sum':
-                result_values.append(np.sum(values_in_interval))
-            elif aggregation == 'count':
-                result_values.append(len(values_in_interval))
-            elif aggregation == 'all':
-                result_values.append(values_in_interval.tolist())
-            elif aggregation == 'min':
-                print(f"Using min aggregation for interval {i}: {start} to {end}")
-                result_values.append(np.min(values_in_interval))
+                dist_intervals.append(np.mean(np.sqrt(pts_in_interval[:, 0]**2 + pts_in_interval[:, 2]**2)))
             else:
                 raise ValueError(f"Unsupported aggregation method: {aggregation}")
         else:
-            if aggregation == 'all':
-                result_values.append([])
-            else:
-                result_values.append(default_value)
+            dist_intervals.append(default_value)
+    return np.array(angle_intervals), np.array(dist_intervals)
     
-    if aggregation == 'all':
-        return intervals, result_values
-    else:
-        return intervals, np.array(result_values)
+    
+    # min_x = np.min(pts[:, 0])
+    # max_x = np.max(pts[:, 0])
+
+    # boundaries = np.linspace(min_x, max_x, n_intervals + 1)
+    # result_values = []
+    # intervals = []
+    # for i in range(n_intervals):
+    #     start = boundaries[i]
+    #     end = boundaries[i + 1]
+    #     intervals.append((start, end))
+        
+    #     if i == n_intervals - 1:
+    #         mask = (pts[:, 0] >= start) & (pts[:, 0] <= end)
+    #     else:
+    #         mask = (pts[:, 0] >= start) & (pts[:, 0] < end)
+        
+    #     values_in_interval = pts[:, 2][mask]
+        
+    #     if len(values_in_interval) > 0:
+    #         if aggregation == 'first':
+    #             result_values.append(values_in_interval[0])
+    #         elif aggregation == 'last':
+    #             result_values.append(values_in_interval[-1])
+    #         elif aggregation == 'mean':
+    #             result_values.append(np.mean(values_in_interval))
+    #         elif aggregation == 'median':
+    #             result_values.append(np.median(values_in_interval))
+    #         elif aggregation == 'sum':
+    #             result_values.append(np.sum(values_in_interval))
+    #         elif aggregation == 'count':
+    #             result_values.append(len(values_in_interval))
+    #         elif aggregation == 'all':
+    #             result_values.append(values_in_interval.tolist())
+    #         elif aggregation == 'min':
+    #             print(f"Using min aggregation for interval {i}: {start} to {end}")
+    #             result_values.append(np.min(values_in_interval))
+    #         else:
+    #             raise ValueError(f"Unsupported aggregation method: {aggregation}")
+    #     else:
+    #         if aggregation == 'all':
+    #             result_values.append([])
+    #         else:
+    #             result_values.append(default_value)
+    
+    # if aggregation == 'all':
+    #     return intervals, result_values
+    # else:
+    #     return intervals, np.array(result_values)
 
 def depth_layer_scan(depth,
                     rgb=None,
@@ -297,31 +344,39 @@ def depth_layer_scan(depth,
                                         cfg=cfg)
     if pts.shape[0] == 0: # 过滤后点云为空，则直接返回None
         return None, None
-    min_x = np.min(pts[:, 0])
-    max_x = np.max(pts[:, 0])
+    # min_x = np.min(pts[:, 0])
+    # max_x = np.max(pts[:, 0])
     # print(f"Depth scan range: X [{min_x:.2f}, {max_x:.2f}]")
     # min_y = np.min(pts[:, 1])
     # max_y = np.max(pts[:, 1])
     # print(f"Depth scan range: Y [{min_y:.2f}, {max_y:.2f}]")
-    intervals, y_corrd = map_array_to_intervals(
-                            arr_key=pts[:, 0], 
-                            arr_val=pts[:, 2], 
-                            min_val=min_x, 
-                            max_val=max_x, 
-                            n_intervals=cfg.laserscan_cfg['n_intervals'], 
-                            default_value=cfg.laserscan_cfg['default_value'], 
+    # intervals, y_coord = map_pts_to_intervals(
+    #                         pts,
+    #                         fov_deg=cfg.sensor_cfg['fov_deg'],
+    #                         n_intervals=cfg.laserscan_cfg['n_intervals'], 
+    #                         default_value=cfg.laserscan_cfg['default_value'], 
+    #                         aggregation=cfg.laserscan_cfg['aggregation']
+    #                     )
+    # start = np.array([interval[0] for interval in intervals])
+    # end = np.array([interval[1] for interval in intervals])
+    # x_coord = (start + end) / 2.0  # 中心点
+    # y_coord = np.abs(y_coord)  # 取绝对值
+    # return x_coord, y_coord, _, _
+    angles_intervals, dist = map_pts_to_intervals(
+                            pts,    
+                            fov_deg=cfg.sensor_cfg['fov_deg'],
+                            n_intervals=cfg.laserscan_cfg['n_intervals'],
+                            default_value=cfg.laserscan_cfg['default_value'],
                             aggregation=cfg.laserscan_cfg['aggregation']
                         )
-    start = np.array([interval[0] for interval in intervals])
-    end = np.array([interval[1] for interval in intervals])
-    x_coord = (start + end) / 2.0  # 中心点
+    angles = (angles_intervals[:, 0] + angles_intervals[:, 1]) / 2.0
+    dist[dist > cfg.laserscan_cfg['default_value']] = cfg.laserscan_cfg['default_value']  # 限制最大距离
+    x_coord = dist * np.cos(angles)  # X坐标
+    y_coord = dist * np.sin(angles)  # Y坐标
     # print(f"x_coord: {x_coord}")
-    y_corrd = np.abs(y_corrd)
-    # y_corrd[y_corrd > cfg.laserscan_cfg['default_value']] = cfg.laserscan_cfg['default_value']  
-    # print(f"Depth scan intervals: {intervals}")
-    # print(f"Depth scan values: {dists}")
-
-    return x_coord, y_corrd
+    # print(f"y_coord: {y_coord}")
+    return x_coord, y_coord, angles, dist
+    
 
 def depth_layer_scan_api(depth,
                          rgb=None,
@@ -330,7 +385,7 @@ def depth_layer_scan_api(depth,
                          dist_scale=1.0,
                          rotate_points=[['x', -30]],
                          filter_points=[['y', -0.25, 0.25]],
-                         aggregation='mean',
+                         aggregation='min',
                          n_intervals=30,
                          default_value=3.0):
     """ 深度图投影到激光扫描 - API接口
@@ -339,26 +394,24 @@ def depth_layer_scan_api(depth,
         rgb: HxWx3 RGB图像 (可选)
         height: 相机高度，用于地面过滤 (可选)
         n_intervals: 深度扫描的区间数 (默认 30)
-        default_value: 空区间的默认值 (默认 10) 
+        default_value: 空区间的默认值 (默认 3) 
     returns:
         angles: 激光扫描角度 (n_intervals,) ndarray
         dists: 激光扫描距离 (n_intervals,) ndarray
     """
-    angles = np.linspace(fov_deg[0]/2, -fov_deg[0]/2, n_intervals)
+    # angles = np.linspace(fov_deg[0]/2, -fov_deg[0]/2, n_intervals)
     cfg = Config(
         corrdinate_system='opengl',
         sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
         transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
         laserscan_cfg={"aggregation": aggregation, "n_intervals": n_intervals, "default_value": default_value}
     )
-    x, y = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
+    x, y, angles, dist = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
     if x is not None and y is not None:
-        dist = np.sqrt(x**2 + y**2)
-        dist[dist > default_value] = default_value  # 限制最大距离
         dist = dist / default_value # 归一化距离
     else: # 过滤点云为None，则直接返回最大距离
         dist = np.ones_like(angles)
-    return angles, dist
+    return np.rad2deg(angles), dist
 
 
 
@@ -600,8 +653,8 @@ def plot_laser_scan(ax, angles, dists):
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_aspect('equal')
-    x = dists * np.cos(np.deg2rad(angles)+np.pi/2)
-    y = dists * np.sin(np.deg2rad(angles)+np.pi/2)
+    x = dists * np.cos(np.deg2rad(angles))
+    y = dists * np.sin(np.deg2rad(angles))
     ax.scatter(x, y, marker='o')
     for i in range(len(angles)):
         ax.plot([0, x[i]], [0, y[i]], 'r--', alpha=0.3)
@@ -643,7 +696,7 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     img_occ = axes[2].imshow(occ_map, cmap="gray", origin="lower")
     axes[2].set_title("Occ Map")
     
-    x, y = depth_layer_scan(depth[idx[0]], 
+    x, y, _, _ = depth_layer_scan(depth[idx[0]], 
                                   rgb=rgb[idx[0]], 
                                   height=height[idx[0]] if height is not None else None,
                                   cfg=cfg)
@@ -651,7 +704,6 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     axes[3].set_aspect('equal')
     global scatter 
     scatter = axes[3].scatter(x, y, marker='o')
-   
     axes[3].set_title("Depth Scan")
 
     angles, dists = depth_layer_scan_api(depth[idx[0]], 
@@ -683,7 +735,7 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
         _, _, occ_map = depth_layer_proj(depth[idx[0]], rgb[idx[0]], cfg=cfg)
         img_occ.set_data(occ_map)
 
-        x, y = depth_layer_scan(depth[idx[0]], rgb=rgb[idx[0]], height=height[idx[0]] if height is not None else None, cfg=cfg)
+        x, y, _, _ = depth_layer_scan(depth[idx[0]], rgb=rgb[idx[0]], height=height[idx[0]] if height is not None else None, cfg=cfg)
         global scatter
         scatter.remove()
         # 创建新的散点图

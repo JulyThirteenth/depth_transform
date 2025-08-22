@@ -1,5 +1,5 @@
 # depth_transform
-A Script for transform from RGBD or Depth to Point Cloud, Occupancy Map
+The script for transform from RGB-D or Depth to Point Cloud, Occupancy Map, 2D Laser, which is convinient for using in single line code.
 
 # Usage
 Here are two apis which are convinient for using in sigle line code:
@@ -12,7 +12,7 @@ def depth_layer_scan_api(depth,
                          dist_scale=1.0,
                          rotate_points=[['x', -30]],
                          filter_points=[['y', -0.25, 0.25]],
-                         aggregation='mean',
+                         aggregation='min',
                          n_intervals=30,
                          default_value=3.0):
     """ 深度图投影到激光扫描 - API接口
@@ -21,22 +21,24 @@ def depth_layer_scan_api(depth,
         rgb: HxWx3 RGB图像 (可选)
         height: 相机高度，用于地面过滤 (可选)
         n_intervals: 深度扫描的区间数 (默认 30)
-        default_value: 空区间的默认值 (默认 10) 
+        default_value: 空区间的默认值 (默认 3) 
     returns:
         angles: 激光扫描角度 (n_intervals,) ndarray
         dists: 激光扫描距离 (n_intervals,) ndarray
     """
-    angles = np.linspace(-fov_deg[0]/2, fov_deg[0]/2, n_intervals)
+    # angles = np.linspace(fov_deg[0]/2, -fov_deg[0]/2, n_intervals)
     cfg = Config(
         corrdinate_system='opengl',
         sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
         transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
         laserscan_cfg={"aggregation": aggregation, "n_intervals": n_intervals, "default_value": default_value}
     )
-    x, y = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
-    dist = np.sqrt(x**2 + y**2)
-    dist[dist > default_value] = default_value  # 限制最大距离
-    return angles, dist / default_value  # 归一化距离
+    x, y, angles, dist = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
+    if x is not None and y is not None:
+        dist = dist / default_value # 归一化距离
+    else: # 过滤点云为None，则直接返回最大距离
+        dist = np.ones_like(angles)
+    return np.rad2deg(angles), dist
 ```
 * depth_to_occ_map:
 ```
@@ -98,12 +100,13 @@ Here are also two visual tools which will help you a lot:
   input same as above
 
 Open the shell or cmd and use below two commands to have a visual of input and ouput:
-* ``` python .\depth_transform.py --cfg ./depth_transform.yaml --data /path/to/data --mode plot```\
+* ``` python .\depth_transform.py --cfg ./depth_transform.yaml --data /path/to/data --mode plot```
   * You can use <-, -> to change frame\
-![plot](./assets/plot.png)\
-* ``` python .\depth_transform.py --cfg ./depth_transform.yaml --data /path/to/data --mode viewer```\
+![plot](./assets/plot.png)
+![plot](./assets/plot_1.png)
+* ``` python .\depth_transform.py --cfg ./depth_transform.yaml --data /path/to/data --mode viewer```
   * You can change frame through silder of Frame on the left side bar\
-![viewer](./assets/viewer.png)\
+![viewer](./assets/viewer.png)
 
 If there is the error like this:\
 '''libGL error: MESA-LOADER: failed to open swrast: /usr/lib/dri/swrast_dri.so: 无法打开共享目标文件: 没有那个文件或目录 (search paths /usr/lib/x86_64-linux-gnu/dri:\$${ORIGIN}/dri:/usr/lib/dri, suffix _dri)\

@@ -16,8 +16,8 @@ projection_cfg:
   map_size: 100 # 100x100
 
 laserscan_cfg:
-  aggregation: 'mean' # 'mean', 'max', 'min', 'all'
-  n_intervals: 30 # number of intervals for depth scan
+  aggregation: 'min' # 'mean', 'max', 'min'
+  n_intervals: 90 # number of intervals for depth scan
   default_value: 3.0 # default value for empty intervals
 
 
