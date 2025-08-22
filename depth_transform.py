@@ -6,6 +6,112 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from typing import Dict, Any
 
+import numpy as np
+
+def _intrinsics_from_fov(width:int, height:int, fov_deg):
+    fov_x, fov_y = np.deg2rad(fov_deg[0]), np.deg2rad(fov_deg[1])
+    fx = width / (2.0 * np.tan(fov_x / 2.0))
+    fy = height / (2.0 * np.tan(fov_y / 2.0))
+    cx, cy = (width - 1) / 2.0, (height - 1) / 2.0
+    return fx, fy, cx, cy
+
+def pointcloud_to_depth(
+    pts: np.ndarray,
+    height: int,
+    width: int,
+    fov_deg=(90.0, 90.0),
+    dist_scale: float = 1.0,
+    coordinate_system: str = "opengl",
+    aggregation: str = "zmin",
+    radius: int = 0,
+    fill_value: float = 0.0,
+) -> np.ndarray:
+    """
+    Project a point cloud in the camera frame to a pinhole depth image.
+
+    Args:
+        pts: (N,3) points in the SAME camera coordinate convention used by depth_to_pointcloud:
+             - X right, Y up (OpenGL) or down (OpenCV), Z is forward-negative (pts[:,2] ≤ 0 for visible points).
+             - Depth scalar is Z_pos = -pts[:,2] (> 0 for visible points).
+        height, width: output image size (H, W)
+        fov_deg: (fov_x_deg, fov_y_deg) to derive intrinsics (must match what was used to create pts)
+        dist_scale: inverse of the scale used before; depth_out = Z / dist_scale
+        coordinate_system: 'opengl' or 'opencv' (affects vertical projection sign)
+        aggregation: policy when multiple points map to the same pixel:
+                     'zmin' (closest), 'zmax' (farthest), or 'zmean' (average)
+        radius: integer splat radius in pixels; 0 = single-pixel write; >0 fills a (2r+1)x(2r+1) square.
+        fill_value: value for pixels with no projected points.
+
+    Returns:
+        depth: (H,W) float32 array. Each pixel stores depth_in_meters / dist_scale.
+    """
+    assert pts.ndim == 2 and pts.shape[1] == 3, "pts must be of shape (N,3)"
+    H, W = int(height), int(width)
+    fx, fy, cx, cy = _intrinsics_from_fov(W, H, fov_deg)
+
+    Z = -pts[:, 2]  # camera-forward depth must be positive
+    valid = Z > 0.0
+    if not np.any(valid):
+        return np.full((H, W), fill_value, dtype=np.float32)
+
+    X = pts[valid, 0]
+    Y = pts[valid, 1]
+    Zv = Z[valid]
+
+    u = fx * (X / Zv) + cx
+    if coordinate_system.lower() == "opencv":
+        v = fy * (Y / Zv) + cy
+    elif coordinate_system.lower() == "opengl":
+        v = -fy * (Y / Zv) + cy
+    else:
+        raise ValueError("coordinate_system must be 'opencv' or 'opengl'")
+
+    ui = np.round(u).astype(int)
+    vi = np.round(v).astype(int)
+
+    in_bounds = (ui >= 0) & (ui < W) & (vi >= 0) & (vi < H)
+    if not np.any(in_bounds):
+        return np.full((H, W), fill_value, dtype=np.float32)
+
+    ui = ui[in_bounds]
+    vi = vi[in_bounds]
+    Zv = Zv[in_bounds]
+
+    if aggregation == "zmin":
+        depth = np.full((H, W), np.inf, dtype=np.float32)
+    elif aggregation == "zmax":
+        depth = np.full((H, W), -np.inf, dtype=np.float32)
+    elif aggregation == "zmean":
+        depth = np.zeros((H, W), dtype=np.float64)
+        count = np.zeros((H, W), dtype=np.int32)
+    else:
+        raise ValueError("aggregation must be 'zmin', 'zmax', or 'zmean'")
+
+    r = int(radius)
+    if aggregation in ("zmin", "zmax"):
+        for px, py, z in zip(ui, vi, Zv):
+            x0 = max(0, px - r); x1 = min(W - 1, px + r)
+            y0 = max(0, py - r); y1 = min(H - 1, py + r)
+            block = depth[y0:y1+1, x0:x1+1]
+            if aggregation == "zmin":
+                depth[y0:y1+1, x0:x1+1] = np.minimum(block, z)
+            else:
+                depth[y0:y1+1, x0:x1+1] = np.maximum(block, z)
+        mask = np.isfinite(depth)
+        out = np.full_like(depth, fill_value, dtype=np.float32)
+        out[mask] = (depth[mask] / dist_scale).astype(np.float32)
+        return out
+    else:
+        for px, py, z in zip(ui, vi, Zv):
+            x0 = max(0, px - r); x1 = min(W - 1, px + r)
+            y0 = max(0, py - r); y1 = min(H - 1, py + r)
+            depth[y0:y1+1, x0:x1+1] += z
+            count[y0:y1+1, x0:x1+1] += 1
+        out = np.full((H, W), fill_value, dtype=np.float32)
+        valid = count > 0
+        out[valid] = (depth[valid] / count[valid] / dist_scale).astype(np.float32)
+        return out
+
 class Config:
     def __init__(self,
                  corrdinate_system: str = 'opengl',
@@ -65,12 +171,13 @@ def depth_to_pointcloud(depth,
         pts: 点云坐标 (HxW, 3) ndarray
     """
     H, W = depth.shape
+    print(f"Depth image size: {W}x{H}")
     fov_x, fov_y = np.deg2rad(fov_deg[0]), np.deg2rad(fov_deg[1])
     # 计算内参
     fx = W / (2 * np.tan(fov_x / 2))
     fy = H / (2 * np.tan(fov_y / 2))
     cx, cy = (W - 1) / 2.0, (H - 1) / 2.0
-    
+    print(f"Camera intrinsics: fx={fx:.2f}, fy={fy:.2f}, cx={cx:.2f}, cy={cy:.2f}")
     # 应用深度缩放
     Z = depth.astype(np.float32) * dist_scale
     
@@ -211,6 +318,7 @@ def depth_to_filted_pointcloud(depth,
         pts = rotate_points(pts, cfg.transform_cfg['rotate_points'])
     
     if 'filter_points' in cfg.transform_cfg:
+        # print(cfg.transform_cfg['filter_points'])
         pts, color = filter_points(pts, color, cfg.transform_cfg['filter_points'])
 
     # 根据相机高度添加地面过滤
@@ -664,24 +772,24 @@ class PointCloudFilterApp:
 
 def plot_laser_scan(ax, angles, dists):
     ax.clear()
-    ax.set_title("Laser Scan")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
+    # ax.set_title("Laser Scan")
+    # ax.set_xlabel("X")
+    # ax.set_ylabel("Y")
     ax.set_aspect('equal')
     x = dists * np.cos(np.deg2rad(angles))
     y = dists * np.sin(np.deg2rad(angles))
-    ax.scatter(x, y, marker='o')
+    ax.scatter(x, y, marker='o', s=3)
     for i in range(len(angles)):
         ax.plot([0, x[i]], [0, y[i]], 'r--', alpha=0.3)
     ax.set_xlim([-1.0, 1.0])
-    ax.set_ylim([-0.2, 1.2])
+    ax.set_ylim([-0.0, 1.0])
     ax.grid(True)
 
 def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     num_frames = rgb.shape[0]
     idx = [0]  # 用列表封装，方便在内部修改
 
-    fig, axes = plt.subplots(1, 5, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 6, figsize=(12, 4))
     fig.subplots_adjust(wspace=0.3)
     fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
 
@@ -718,8 +826,8 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     
     axes[3].set_aspect('equal')
     global scatter 
-    scatter = axes[3].scatter(x, y, marker='o')
-    axes[3].set_title("Depth Scan")
+    scatter = axes[3].scatter(x, y, marker='o', s=5)
+    # axes[3].set_title("Depth Scan")
 
     angles, dists = depth_layer_scan_api(depth[idx[0]], 
                                         rgb=rgb[idx[0]], 
@@ -734,6 +842,42 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     plot_laser_scan(axes[4], angles, dists)
     for ax in axes.flatten()[:-2]:
         ax.axis('off')
+
+    # --- Depth → PointCloud → Depth (dpt) 可视化 ---
+    pts, _ = depth_to_filted_pointcloud_api(
+        depth=depth[idx[0]],                              # ✅ 用当前帧的深度图，而不是 [idx[0]]
+        rgb=rgb[idx[0]] if rgb is not None else None,
+        fov_deg=cfg.sensor_cfg['fov_deg'],
+        dist_scale=cfg.sensor_cfg['dist_scale'],
+        rotate_points=cfg.transform_cfg['rotate_points'], # ✅ 不要写 (x, -30)，沿用 cfg 里的写法 [['x', -30]]
+
+        coordinate_system=cfg.coordinate_system,
+    )
+
+    H, W = depth[idx[0]].shape                            # ✅ 用当前帧的尺寸
+    dpt = pointcloud_to_depth(
+        pts, H, W,
+        fov_deg=cfg.sensor_cfg['fov_deg'],
+        dist_scale=cfg.sensor_cfg['dist_scale'],
+        coordinate_system=cfg.coordinate_system,
+        aggregation="zmin",
+        radius=1,
+        fill_value=0.0,
+    )
+
+    # 为了直观看到空洞，把 0 替换为 NaN；并与原 depth 统一色标，便于对比
+    dpt_vis = np.where(dpt > 0, dpt, np.nan)
+    img_dpt = axes[5].imshow(
+        dpt_vis,
+        cmap="viridis",
+        vmin=np.nanmin(depth[idx[0]]),
+        vmax=np.nanmax(depth[idx[0]]),
+    )
+    axes[5].set_title("Reprojected Depth (dpt)")
+    axes[5].axis("off")
+
+    
+
 
     # 按键事件
     def on_key(event):
@@ -755,7 +899,7 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
         scatter.remove()
         # 创建新的散点图
         axes[3].set_aspect('equal')
-        scatter = axes[3].scatter(x, y, s=50, c='blue', alpha=0.6)
+        scatter = axes[3].scatter(x, y, s=10, c='blue', alpha=0.6)
 
         angles, dists = depth_layer_scan_api(depth[idx[0]], 
                                             rgb=rgb[idx[0]], 
@@ -769,7 +913,38 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
                                             default_value=cfg.laserscan_cfg['default_value'])
         plot_laser_scan(axes[4], angles, dists)
 
-        
+        # --- Depth → PointCloud → Depth (dpt) 可视化 ---
+        pts, _ = depth_to_filted_pointcloud_api(
+            depth=depth[idx[0]],                              # ✅ 用当前帧的深度图，而不是 [idx[0]]
+            rgb=rgb[idx[0]] if rgb is not None else None,
+            fov_deg=cfg.sensor_cfg['fov_deg'],
+            dist_scale=cfg.sensor_cfg['dist_scale'],
+            rotate_points=cfg.transform_cfg['rotate_points'], # ✅ 不要写 (x, -30)，沿用 cfg 里的写法 [['x', -30]]
+            coordinate_system=cfg.coordinate_system,
+        )
+
+        H, W = depth[idx[0]].shape                            # ✅ 用当前帧的尺寸
+        dpt = pointcloud_to_depth(
+            pts, H, W,
+            fov_deg=cfg.sensor_cfg['fov_deg'],
+            dist_scale=cfg.sensor_cfg['dist_scale'],
+            coordinate_system=cfg.coordinate_system,
+            aggregation="zmin",
+            radius=1,
+            fill_value=0.0,
+        )
+
+        # 为了直观看到空洞，把 0 替换为 NaN；并与原 depth 统一色标，便于对比
+        dpt_vis = np.where(dpt > 0, dpt, np.nan)
+        img_dpt = axes[5].imshow(
+            dpt_vis,
+            cmap="viridis",
+            vmin=np.nanmin(depth[idx[0]]),
+            vmax=np.nanmax(depth[idx[0]]),
+        )
+        axes[5].set_title("Reprojected Depth (dpt)")
+        axes[5].axis("off")
+
 
         fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
         fig.canvas.draw_idle()
