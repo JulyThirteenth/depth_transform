@@ -536,9 +536,19 @@ def depth_layer_proj(
     depth_map = np.full((size, size), np.inf)
 
     half = size // 2
-    # Map camera Z (forward) to grid_x, and X (right) to grid_y.
-    grid_x = -np.floor(layer[:, 2] / res).astype(int) + half  # forward becomes +x
-    grid_y =  np.floor(layer[:, 0] / res).astype(int) + half  # right becomes +y
+    # Convert camera Z to a positive forward distance before mapping. In OpenGL
+    # visible points have Z<0; in OpenCV visible points have Z>0.
+    cs = cfg.coordinate_system.lower()
+    if cs == "opengl":
+        forward = -layer[:, 2]
+    elif cs == "opencv":
+        forward = layer[:, 2]
+    else:
+        raise ValueError("coordinate_system must be 'opencv' or 'opengl'")
+
+    # Map forward distance to grid_x, and X (right) to grid_y.
+    grid_x = np.floor(forward / res).astype(int) + half
+    grid_y = np.floor(layer[:, 0] / res).astype(int) + half
 
     valid = (grid_x >= 0) & (grid_x < size) & (grid_y >= 0) & (grid_y < size)
     gx, gy, z = grid_x[valid], grid_y[valid], layer[valid, 1]  # use Y as height for z-buffering
