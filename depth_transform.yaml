@@ -18,6 +18,6 @@ projection_cfg:
 laserscan_cfg:
   aggregation: 'mean' # 'mean', 'max', 'min', 'all'
   n_intervals: 30 # number of intervals for depth scan
-  default_value: 10 # default value for empty intervals
+  default_value: 3.0 # default value for empty intervals
 
 

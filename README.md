@@ -2,7 +2,10 @@
 A Script for transform from RGBD or Depth to Point Cloud, Occupancy Map
 
 # Usage
-Here is a api which is convinient for using in sigle line code:
+Here are two apis which are convinient for using in sigle line code:
+* depth_t0_laser_scan
+
+* depth_to_occ_map:
 ```
 def depth_layer_proj_api(
     depth, 

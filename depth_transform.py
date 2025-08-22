@@ -301,7 +301,7 @@ def depth_layer_scan(depth,
     # min_y = np.min(pts[:, 1])
     # max_y = np.max(pts[:, 1])
     # print(f"Depth scan range: Y [{min_y:.2f}, {max_y:.2f}]")
-    intervals, dists = map_array_to_intervals(
+    intervals, y_corrd = map_array_to_intervals(
                             arr_key=pts[:, 0], 
                             arr_val=pts[:, 2], 
                             min_val=min_x, 
@@ -314,12 +314,47 @@ def depth_layer_scan(depth,
     end = np.array([interval[1] for interval in intervals])
     x_coord = (start + end) / 2.0  # 中心点
     # print(f"x_coord: {x_coord}")
-    dists = np.abs(dists)
-    dists[dists > cfg.laserscan_cfg['default_value']] = cfg.laserscan_cfg['default_value']  
+    y_corrd = np.abs(y_corrd)
+    # y_corrd[y_corrd > cfg.laserscan_cfg['default_value']] = cfg.laserscan_cfg['default_value']  
     # print(f"Depth scan intervals: {intervals}")
     # print(f"Depth scan values: {dists}")
 
-    return x_coord, dists
+    return x_coord, y_corrd
+
+def depth_layer_scan_api(depth,
+                         rgb=None,
+                         height=None,
+                         fov_deg=[90.0, 90.0],
+                         dist_scale=1.0,
+                         rotate_points=[['x', -30]],
+                         filter_points=[['y', -0.25, 0.25]],
+                         aggregation='mean',
+                         n_intervals=30,
+                         default_value=3.0):
+    """ 深度图投影到激光扫描 - API接口
+    参数:   
+        depth: HxW 深度图
+        rgb: HxWx3 RGB图像 (可选)
+        height: 相机高度，用于地面过滤 (可选)
+        n_intervals: 深度扫描的区间数 (默认 30)
+        default_value: 空区间的默认值 (默认 10) 
+    returns:
+        angles: 激光扫描角度 (n_intervals,) ndarray
+        dists: 激光扫描距离 (n_intervals,) ndarray
+    """
+    angles = np.linspace(-fov_deg[0]/2, fov_deg[0]/2, n_intervals)
+    cfg = Config(
+        corrdinate_system='opengl',
+        sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
+        transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
+        laserscan_cfg={"aggregation": aggregation, "n_intervals": n_intervals, "default_value": default_value}
+    )
+    x, y = depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
+    dist = np.sqrt(x**2 + y**2)
+    dist[dist > default_value] = default_value  # 限制最大距离
+    return angles, dist / default_value  # 归一化距离
+
+
 
 def depth_layer_proj(depth, 
                     rgb=None, 
@@ -553,11 +588,26 @@ class PointCloudFilterApp:
         # 重新添加小坐标轴
         self.scene_widget.scene.add_geometry("axis", self.axis_frame, material)
 
+def plot_laser_scan(ax, angles, dists):
+    ax.clear()
+    ax.set_title("Laser Scan")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_aspect('equal')
+    x = dists * np.cos(np.deg2rad(angles)+np.pi/2)
+    y = dists * np.sin(np.deg2rad(angles)+np.pi/2)
+    ax.scatter(x, y, marker='o')
+    for i in range(len(angles)):
+        ax.plot([0, x[i]], [0, y[i]], 'r--', alpha=0.3)
+    ax.set_xlim([-1.0, 1.0])
+    ax.set_ylim([-0.2, 1.2])
+    ax.grid(True)
+
 def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     num_frames = rgb.shape[0]
     idx = [0]  # 用列表封装，方便在内部修改
 
-    fig, axes = plt.subplots(1, 4, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 5, figsize=(12, 4))
     fig.subplots_adjust(wspace=0.3)
     fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
 
@@ -591,13 +641,26 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
                                   rgb=rgb[idx[0]], 
                                   height=height[idx[0]] if height is not None else None,
                                   cfg=cfg)
+    
     axes[3].set_aspect('equal')
     global scatter 
     scatter = axes[3].scatter(x, y, marker='o')
+   
     axes[3].set_title("Depth Scan")
 
-    # for ax in axes.flatten():
-    #     ax.axis('off')
+    angles, dists = depth_layer_scan_api(depth[idx[0]], 
+                                        rgb=rgb[idx[0]], 
+                                        height=height[idx[0]] if height is not None else None,
+                                        fov_deg=cfg.sensor_cfg['fov_deg'],
+                                        dist_scale=cfg.sensor_cfg['dist_scale'],
+                                        rotate_points=cfg.transform_cfg['rotate_points'],
+                                        filter_points=cfg.transform_cfg['filter_points'],
+                                        aggregation=cfg.laserscan_cfg['aggregation'],
+                                        n_intervals=cfg.laserscan_cfg['n_intervals'],
+                                        default_value=cfg.laserscan_cfg['default_value'])
+    plot_laser_scan(axes[4], angles, dists)
+    for ax in axes.flatten()[:-2]:
+        ax.axis('off')
 
     # 按键事件
     def on_key(event):
@@ -620,6 +683,19 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
         # 创建新的散点图
         axes[3].set_aspect('equal')
         scatter = axes[3].scatter(x, y, s=50, c='blue', alpha=0.6)
+
+        angles, dists = depth_layer_scan_api(depth[idx[0]], 
+                                            rgb=rgb[idx[0]], 
+                                            height=height[idx[0]] if height is not None else None,
+                                            fov_deg=cfg.sensor_cfg['fov_deg'],
+                                            dist_scale=cfg.sensor_cfg['dist_scale'],
+                                            rotate_points=cfg.transform_cfg['rotate_points'],
+                                            filter_points=cfg.transform_cfg['filter_points'],
+                                            aggregation=cfg.laserscan_cfg['aggregation'],
+                                            n_intervals=cfg.laserscan_cfg['n_intervals'],
+                                            default_value=cfg.laserscan_cfg['default_value'])
+        plot_laser_scan(axes[4], angles, dists)
+
         
 
         fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
@@ -627,7 +703,6 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
 
     fig.canvas.mpl_connect('key_press_event', on_key)
     plt.show()
-
 
 # ---------------------- 运行调试 ----------------------
 if __name__ == "__main__":
