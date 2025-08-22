@@ -226,6 +226,21 @@ def depth_to_filted_pointcloud(depth,
     
     return pts, color
 
+def depth_to_filted_pointcloud_api(depth, 
+                                   rgb=None, 
+                                   height=None,
+                                   fov_deg = [90, 90],
+                                   dist_scale = 1.0, 
+                                   rotate_points=[], 
+                                   filter_points=[], 
+                                   coordinate_system='opengl'):
+    cfg = Config(
+        corrdinate_system=coordinate_system,
+        sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
+        transform_cfg={"rotate_points": rotate_points, "filter_points": filter_points},
+    )
+    return depth_to_filted_pointcloud(depth, rgb, height, cfg)
+
 def map_pts_to_intervals(pts, 
                          fov_deg=[90.0, 90.0],
                          n_intervals=30, 
@@ -377,7 +392,6 @@ def depth_layer_scan(depth,
     # print(f"y_coord: {y_coord}")
     return x_coord, y_coord, angles, dist
     
-
 def depth_layer_scan_api(depth,
                          rgb=None,
                          height=None,
@@ -415,8 +429,6 @@ def depth_layer_scan_api(depth,
         angles = (angle_boundaries[:-1] + angle_boundaries[1:]) / 2.0
         dist = np.ones_like(angles)
     return angles, dist
-
-
 
 def depth_layer_proj(depth, 
                     rgb=None, 
