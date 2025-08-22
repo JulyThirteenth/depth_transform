@@ -342,7 +342,7 @@ def depth_layer_scan_api(depth,
         angles: 激光扫描角度 (n_intervals,) ndarray
         dists: 激光扫描距离 (n_intervals,) ndarray
     """
-    angles = np.linspace(-fov_deg[0]/2, fov_deg[0]/2, n_intervals)
+    angles = np.linspace(fov_deg[0]/2, -fov_deg[0]/2, n_intervals)
     cfg = Config(
         corrdinate_system='opengl',
         sensor_cfg={"fov_deg": fov_deg, "dist_scale": dist_scale},
