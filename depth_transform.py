@@ -12,7 +12,8 @@ class Config:
                  # 默认配置
                  sensor_cfg: Dict[str, Any] = None,
                  transform_cfg: Dict[str, Any] = None,
-                 projection_cfg: Dict[str, Any] = None):
+                 projection_cfg: Dict[str, Any] = None,
+                 laserscan_cfg: Dict[str, Any] = None):
         self.coordinate_system = corrdinate_system.lower()
         if self.coordinate_system not in ['opengl', 'opencv']:
             raise ValueError("coordinate_system 必须是 'opengl' 或 'opencv'")
@@ -31,6 +32,11 @@ class Config:
             "map_resolution": 0.2,
             "map_size": 100,
         }
+        self.laserscan_cfg = laserscan_cfg or {
+            "aggregation": 'mean',  # 'mean', 'max', 'min', 'all'
+            "n_intervals": 30,  # 深度扫描的区间数
+            "default_value": 10,  # 空区间的默认值
+        }
 
     @classmethod
     def from_yaml(cls, yaml_path: str):
@@ -41,8 +47,53 @@ class Config:
         return cls(
             sensor_cfg=data.get("sensor_cfg", None),
             transform_cfg=data.get("transform_cfg", None),
-            projection_cfg=data.get("projection_cfg", None)
+            projection_cfg=data.get("projection_cfg", None),
+            laserscan_cfg=data.get("laserscan_cfg", None),
         )
+
+def depth_to_pointcloud(depth,
+                        fov_deg=[90.0, 90.0],
+                        dist_scale=1.0,
+                        coordinate_system='opengl'):
+    """ 将深度图转换为点云
+    参数:
+        depth: HxW 深度图
+        fov_deg: 相机水平和垂直视场角 (默认 [90.0, 90.0])
+        dist_scale: 深度缩放比例 (默认 1.0)
+        coordinate_system: 坐标系 ('opengl' 或 'opencv', 默认 'opengl')
+    返回:
+        pts: 点云坐标 (HxW, 3) ndarray
+    """
+    H, W = depth.shape
+    fov_x, fov_y = np.deg2rad(fov_deg[0]), np.deg2rad(fov_deg[1])
+    # 计算内参
+    fx = W / (2 * np.tan(fov_x / 2))
+    fy = H / (2 * np.tan(fov_y / 2))
+    cx, cy = (W - 1) / 2.0, (H - 1) / 2.0
+    
+    # 应用深度缩放
+    Z = depth.astype(np.float32) * dist_scale
+    
+    # 创建像素坐标网格
+    u = np.arange(W)
+    v = np.arange(H)
+    uu, vv = np.meshgrid(u, v)
+    
+    # 转换到相机坐标系
+    X = (uu - cx) * Z / fx
+    
+    if coordinate_system == 'opencv':
+        # OpenCV坐标系：Y向下
+        Y = (vv - cy) * Z / fy
+    elif coordinate_system == 'opengl':
+        # OpenGL坐标系：Y向上
+        Y = -(vv - cy) * Z / fy
+    else:
+        raise ValueError("coordinate_system 必须是 'opencv' 或 'opengl'")
+    # 组合点云
+    pts = np.stack([X, Y, -Z], axis=-1)
+
+    return pts
 
 def rotate_points(points, rotates=None):
     """
@@ -125,9 +176,9 @@ def filter_points(points, colors, filters=None):
         if max_val is not None:
             mask &= points[:, axis_idx] <= max_val
 
-    return points[mask], colors[mask] if colors is not None else None
+    return points[mask], colors[mask] if colors is not None else None                        
 
-def depth_to_pointcloud(depth, 
+def depth_to_filted_pointcloud(depth, 
                        rgb=None, 
                        height=None,
                        cfg: Config = None):
@@ -142,41 +193,13 @@ def depth_to_pointcloud(depth,
     """
     if cfg is None:
         cfg = Config()
-    
-    H, W = depth.shape
-    fov_x, fov_y = np.deg2rad(cfg.sensor_cfg['fov_deg'][0]), np.deg2rad(cfg.sensor_cfg['fov_deg'][1])
-    
-    # 计算内参
-    fx = W / (2 * np.tan(fov_x / 2))
-    fy = H / (2 * np.tan(fov_y / 2))
-    cx, cy = (W - 1) / 2.0, (H - 1) / 2.0
-    
-    # 应用深度缩放
-    Z = depth.astype(np.float32) * cfg.sensor_cfg['dist_scale']
-    
-    # 创建像素坐标网格
-    u = np.arange(W)
-    v = np.arange(H)
-    uu, vv = np.meshgrid(u, v)
-    
-    # 转换到相机坐标系
-    X = (uu - cx) * Z / fx
-    
-    if cfg.coordinate_system == 'opencv':
-        # OpenCV坐标系：Y向下
-        Y = (vv - cy) * Z / fy
-    elif cfg.coordinate_system == 'opengl':
-        # OpenGL坐标系：Y向上
-        Y = -(vv - cy) * Z / fy
-    else:
-        raise ValueError("coordinate_system 必须是 'opencv' 或 'opengl'")
-    
-    # 组合点云
-    pts = np.stack([X, Y, -Z], axis=-1).reshape(-1, 3)
-    
-    # 过滤有效深度点
-    mask = Z.reshape(-1) > 0
-    pts = pts[mask]
+    pts_ori = depth_to_pointcloud(depth,
+                              fov_deg=cfg.sensor_cfg['fov_deg'],
+                              dist_scale=cfg.sensor_cfg['dist_scale'],
+                              coordinate_system=cfg.coordinate_system)
+    pts = pts_ori.copy().reshape(-1, 3)  # (H*W, 3)
+    mask = pts[:, 2] <= 0  # 过滤掉深度大于0的点
+    pts = pts[mask]  # (有效点数, 3)
     
     # 处理颜色
     color = None
@@ -192,7 +215,7 @@ def depth_to_pointcloud(depth,
 
     # 根据相机高度添加地面过滤
     if height is not None:
-        if cfg.coordinate_system == 'opengl':
+        if cfg.coordinate_system == 'opengl':# X对应深度
             # Y向上的坐标系，地面在-height附近
             ground_filter = ['y', -height, None]
         else:
@@ -202,6 +225,101 @@ def depth_to_pointcloud(depth,
         pts, color = filter_points(pts, color, [ground_filter])
     
     return pts, color
+
+def map_array_to_intervals(arr_key, arr_val, min_val, max_val, n_intervals, 
+                                  default_value=100, aggregation='min'):
+    """
+    高级版本：支持多种聚合方法
+    
+    Parameters:
+    -----------
+    aggregation : str
+        聚合方法: 'first', 'last', 'mean', 'median', 'sum', 'count', 'all', 'min'
+    """
+    
+    boundaries = np.linspace(min_val, max_val, n_intervals + 1)
+    result_values = []
+    intervals = []
+    
+    for i in range(n_intervals):
+        start = boundaries[i]
+        end = boundaries[i + 1]
+        intervals.append((start, end))
+        
+        if i == n_intervals - 1:
+            mask = (arr_key >= start) & (arr_key <= end)
+        else:
+            mask = (arr_key >= start) & (arr_key < end)
+        
+        values_in_interval = arr_val[mask]
+        
+        if len(values_in_interval) > 0:
+            if aggregation == 'first':
+                result_values.append(values_in_interval[0])
+            elif aggregation == 'last':
+                result_values.append(values_in_interval[-1])
+            elif aggregation == 'mean':
+                result_values.append(np.mean(values_in_interval))
+            elif aggregation == 'median':
+                result_values.append(np.median(values_in_interval))
+            elif aggregation == 'sum':
+                result_values.append(np.sum(values_in_interval))
+            elif aggregation == 'count':
+                result_values.append(len(values_in_interval))
+            elif aggregation == 'all':
+                result_values.append(values_in_interval.tolist())
+            elif aggregation == 'min':
+                print(f"Using min aggregation for interval {i}: {start} to {end}")
+                result_values.append(np.min(values_in_interval))
+            else:
+                raise ValueError(f"Unsupported aggregation method: {aggregation}")
+        else:
+            if aggregation == 'all':
+                result_values.append([])
+            else:
+                result_values.append(default_value)
+    
+    if aggregation == 'all':
+        return intervals, result_values
+    else:
+        return intervals, np.array(result_values)
+
+def depth_layer_scan(depth,
+                    rgb=None,
+                    height=None,
+                    cfg: Config = None):
+    if cfg is None:
+        cfg = Config()
+    # 转换为点云
+    pts, _ = depth_to_filted_pointcloud(depth,
+                                        rgb=rgb, 
+                                        height=height,
+                                        cfg=cfg)
+    min_x = np.min(pts[:, 0])
+    max_x = np.max(pts[:, 0])
+    # print(f"Depth scan range: X [{min_x:.2f}, {max_x:.2f}]")
+    # min_y = np.min(pts[:, 1])
+    # max_y = np.max(pts[:, 1])
+    # print(f"Depth scan range: Y [{min_y:.2f}, {max_y:.2f}]")
+    intervals, dists = map_array_to_intervals(
+                            arr_key=pts[:, 0], 
+                            arr_val=pts[:, 2], 
+                            min_val=min_x, 
+                            max_val=max_x, 
+                            n_intervals=cfg.laserscan_cfg['n_intervals'], 
+                            default_value=cfg.laserscan_cfg['default_value'], 
+                            aggregation=cfg.laserscan_cfg['aggregation']
+                        )
+    start = np.array([interval[0] for interval in intervals])
+    end = np.array([interval[1] for interval in intervals])
+    x_coord = (start + end) / 2.0  # 中心点
+    # print(f"x_coord: {x_coord}")
+    dists = np.abs(dists)
+    dists[dists > cfg.laserscan_cfg['default_value']] = cfg.laserscan_cfg['default_value']  
+    # print(f"Depth scan intervals: {intervals}")
+    # print(f"Depth scan values: {dists}")
+
+    return x_coord, dists
 
 def depth_layer_proj(depth, 
                     rgb=None, 
@@ -214,7 +332,8 @@ def depth_layer_proj(depth,
         cfg = Config()
     
     # 转换为点云
-    layer, color = depth_to_pointcloud(depth, rgb=rgb, height=height, cfg=cfg)
+    layer, color = depth_to_filted_pointcloud(depth, rgb=rgb, height=height, cfg=cfg)
+    depth_layer_scan(depth, rgb=rgb, height=height, cfg=cfg)
     
     size = cfg.projection_cfg['map_size']
     resolution = cfg.projection_cfg['map_resolution']
@@ -306,7 +425,7 @@ class PointCloudFilterApp:
         self.cfg = cfg
         self.current_frame = 0
 
-        self.points, self.color = depth_to_pointcloud(
+        self.points, self.color = depth_to_filted_pointcloud(
             depth=depths[0],
             rgb=colors[0] if colors is not None else None,
             height=heights[0] if heights is not None else None,
@@ -405,7 +524,7 @@ class PointCloudFilterApp:
     def on_frame_slider(self, value):
         self.current_frame = int(value)
         rgb = self.colors[self.current_frame] if self.colors is not None else None
-        self.points, self.color = depth_to_pointcloud(
+        self.points, self.color = depth_to_filted_pointcloud(
             self.depths[self.current_frame],
             rgb=rgb, 
             height=self.heights[self.current_frame] if self.heights is not None else None,
@@ -438,7 +557,7 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     num_frames = rgb.shape[0]
     idx = [0]  # 用列表封装，方便在内部修改
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 4, figsize=(12, 4))
     fig.subplots_adjust(wspace=0.3)
     fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
 
@@ -467,9 +586,18 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
     #                                      coordinate_system=cfg.coordinate_system)
     img_occ = axes[2].imshow(occ_map, cmap="gray", origin="lower")
     axes[2].set_title("Occ Map")
- 
-    for ax in axes.flatten():
-        ax.axis('off')
+    
+    x, y = depth_layer_scan(depth[idx[0]], 
+                                  rgb=rgb[idx[0]], 
+                                  height=height[idx[0]] if height is not None else None,
+                                  cfg=cfg)
+    axes[3].set_aspect('equal')
+    global scatter 
+    scatter = axes[3].scatter(x, y, marker='o')
+    axes[3].set_title("Depth Scan")
+
+    # for ax in axes.flatten():
+    #     ax.axis('off')
 
     # 按键事件
     def on_key(event):
@@ -485,6 +613,14 @@ def plot_data_frame(rgb, depth, height=None, cfg: Config=Config()):
 
         _, _, occ_map = depth_layer_proj(depth[idx[0]], rgb[idx[0]], cfg=cfg)
         img_occ.set_data(occ_map)
+
+        x, y = depth_layer_scan(depth[idx[0]], rgb=rgb[idx[0]], height=height[idx[0]] if height is not None else None, cfg=cfg)
+        global scatter
+        scatter.remove()
+        # 创建新的散点图
+        axes[3].set_aspect('equal')
+        scatter = axes[3].scatter(x, y, s=50, c='blue', alpha=0.6)
+        
 
         fig.suptitle(f"Frame {idx[0] + 1}/{num_frames}, idx {idx[0]}", fontsize=16)
         fig.canvas.draw_idle()
