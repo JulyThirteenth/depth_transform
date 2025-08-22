@@ -20,87 +20,17 @@ some old function names as aliases for backward compatibility.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
-import yaml
 
-
-# -----------------------------------------------------------------------------
-# Configuration dataclasses
-# -----------------------------------------------------------------------------
-
-@dataclass
-class SensorConfig:
-    """Camera sensor configuration."""
-    fov_deg: Tuple[float, float] = (90.0, 90.0)   # (fov_x_deg, fov_y_deg)
-    dist_scale: float = 1.0                       # multiply depth by this to get meters
-
-
-@dataclass
-class TransformConfig:
-    """Point-cloud pre-processing configuration."""
-    # Each item: (axis, angle_deg)  where axis in {'x','y','z'} or a 3-vector
-    rotate_points: List = field(default_factory=lambda: [['x', -30]])
-    # Each item: [axis, min_val, max_val] — axis in {'x','y','z'} or index {0,1,2}
-    filter_points: List = field(default_factory=lambda: [['y', -0.25, 0.25]])
-
-
-@dataclass
-class ProjectionConfig:
-    """Occupancy grid projection configuration."""
-    map_resolution: float = 0.2    # meters per cell
-    map_size: int = 100            # square grid size (map_size x map_size)
-
-
-@dataclass
-class LaserScanConfig:
-    """Laser scan extraction configuration."""
-    aggregation: str = 'min'       # 'min', 'max', 'mean', 'median'
-    n_intervals: int = 30
-    default_value: float = 3.0     # meters (cap for no-returns)
-
-
-@dataclass
-class Config:
-    """
-    Unified configuration for all transforms.
-    """
-    coordinate_system: str = 'opengl'  # 'opengl' | 'opencv'
-    sensor: SensorConfig = field(default_factory=SensorConfig)
-    transform: TransformConfig = field(default_factory=TransformConfig)
-    projection: ProjectionConfig = field(default_factory=ProjectionConfig)
-    laserscan: LaserScanConfig = field(default_factory=LaserScanConfig)
-
-    @classmethod
-    def from_yaml(cls, yaml_path: str) -> "Config":
-        """
-        Load configuration from a YAML file.
-        Accepts new nested keys (sensor, transform, projection, laserscan)
-        or legacy flat keys (sensor_cfg, transform_cfg, ...).
-        """
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-
-        # Support both new and legacy keys
-        sensor = data.get("sensor") or data.get("sensor_cfg") or {}
-        transform = data.get("transform") or data.get("transform_cfg") or {}
-        projection = data.get("projection") or data.get("projection_cfg") or {}
-        laserscan = data.get("laserscan") or data.get("laserscan_cfg") or {}
-        coordinate_system = data.get("coordinate_system") or data.get("corrdinate_system") or 'opengl'
-
-        return cls(
-            coordinate_system=str(coordinate_system).lower(),
-            sensor=SensorConfig(**sensor),
-            transform=TransformConfig(**transform),
-            projection=ProjectionConfig(**projection),
-            laserscan=LaserScanConfig(**laserscan),
-        )
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
+from .depth_cfg import (
+    Config,
+    LaserScanConfig,
+    ProjectionConfig,
+    SensorConfig,
+    TransformConfig,
+)
 
 # -----------------------------------------------------------------------------
 # Camera intrinsics helpers
