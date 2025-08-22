@@ -411,7 +411,8 @@ def depth_layer_scan_api(depth,
         angles = np.rad2deg(angles)  # 转为角度
         dist = dist / default_value # 归一化距离
     else: # 过滤点云为None，则直接返回最大距离
-        angles = np.linspace(fov_deg[0]/2, fov_deg[0] * 1.5, n_intervals)
+        angle_boundaries = np.linspace(fov_deg[0] / 2, fov_deg[0]*1.5, n_intervals + 1)
+        angles = (angle_boundaries[:-1] + angle_boundaries[1:]) / 2.0
         dist = np.ones_like(angles)
     return angles, dist
 
