@@ -343,7 +343,11 @@ def depth_layer_scan(depth,
                                         height=height,
                                         cfg=cfg)
     if pts.shape[0] == 0: # 过滤后点云为空，则直接返回None
+<<<<<<< HEAD
         return None, None
+=======
+        return None, None, None, None
+>>>>>>> ea00af3 (dev: add depth_layer_scan_api)
     # min_x = np.min(pts[:, 0])
     # max_x = np.max(pts[:, 0])
     # print(f"Depth scan range: X [{min_x:.2f}, {max_x:.2f}]")
